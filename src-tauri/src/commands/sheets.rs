@@ -19,12 +19,7 @@ use serde_json::Value;
 use tauri::State;
 use tracing::{error, info, warn};
 
-use crate::{
-    commands::settings::atomic_write,
-    crypto,
-    guard_write,
-    state::AppState,
-};
+use crate::{commands::settings::atomic_write, crypto, guard_write, state::AppState};
 
 /// Loads all timesheet data from disk.
 ///

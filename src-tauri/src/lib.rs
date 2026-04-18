@@ -44,6 +44,13 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.unminimize();
+                let _ = main.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -88,23 +95,25 @@ pub fn run() {
                 let state = app.state::<AppState>();
                 let default_settings = crate::state::Settings::default();
                 // Attempt to read settings briefly to govern startup state (or just fallback to default)
-                // Actually, settings are async loaded. The plugin persists via OS. 
+                // Actually, settings are async loaded. The plugin persists via OS.
                 // We'll let `load_settings` handle this shortly after, but just to be safe:
                 let s_path = state.settings_path();
                 if let Ok(raw) = std::fs::read_to_string(&s_path) {
-                    serde_json::from_str::<crate::state::Settings>(&raw).unwrap_or(default_settings).auto_start
+                    serde_json::from_str::<crate::state::Settings>(&raw)
+                        .unwrap_or(default_settings)
+                        .auto_start
                 } else {
                     default_settings.auto_start
                 }
             };
 
-    use tauri_plugin_autostart::ManagerExt;
-    let manager = app.autolaunch();
-    if auto_start {
-        let _ = manager.enable();
-    } else {
-        let _ = manager.disable();
-    }
+            use tauri_plugin_autostart::ManagerExt;
+            let manager = app.autolaunch();
+            if auto_start {
+                let _ = manager.enable();
+            } else {
+                let _ = manager.disable();
+            }
 
             // overlay-clicked → hide overlay, restore main
             let app_handle = app.handle().clone();
