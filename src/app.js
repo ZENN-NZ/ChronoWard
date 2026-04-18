@@ -843,7 +843,7 @@ async function exportCSV() {
   saveCurrentSheet();
   const rows    = collectRows();
   const [y, m, d] = currentDate.split('-');
-  const dateStr = `${d}-${m}-${y}`;
+  const dateStr = `${y}-${m}-${m}`;
 
   const hasTicket = rows.some(r => (r.ticketNum || '').trim().length > 0);
   const hasDesc   = rows.some(r => (r.description || '').trim().length > 0);
