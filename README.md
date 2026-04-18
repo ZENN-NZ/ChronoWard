@@ -1,4 +1,8 @@
-# ⏱ ChronoWard — Protect your time, meet your goals
+<p align="center">
+<img width="256" height="256" alt="128x128@2x" src="https://github.com/user-attachments/assets/70af6d13-fd3f-4a6d-87cc-5e59112dfcb8" />
+</p>
+
+# ChronoWard — Protect your time, meet your goals
 
 > A secure, fully offline timesheet application — minimal, sleek, and built for neurodivergent workflows.
 
