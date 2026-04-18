@@ -215,4 +215,4 @@ Files:
 
 ## 📄 License
 
-MIT — © 2025 Jeremiah Benjamin
+MIT — © 2026 Jeremiah Benjamin
