@@ -47,6 +47,13 @@ pub struct Settings {
 
     #[serde(default = "default_min_hours_warning")]
     pub min_hours_warning: f64,
+
+    #[serde(default = "default_auto_start")]
+    pub auto_start: bool,
+}
+
+fn default_auto_start() -> bool {
+    true
 }
 
 fn default_theme() -> String {
@@ -79,6 +86,7 @@ impl Default for Settings {
             focus_times: default_focus_times(),
             warning_time: default_warning_time(),
             min_hours_warning: default_min_hours_warning(),
+            auto_start: default_auto_start(),
         }
     }
 }
@@ -232,6 +240,7 @@ mod tests {
         assert_eq!(s.hour_increment, 0.5);
         assert_eq!(s.min_hours_warning, 7.5);
         assert_eq!(s.focus_times.len(), 3);
+        assert!(s.auto_start);
     }
 
     #[test]
@@ -243,6 +252,7 @@ mod tests {
         // Missing fields fall back to defaults
         assert_eq!(s.hour_increment, 0.5);
         assert_eq!(s.warning_time, "16:30");
+        assert!(s.auto_start);
     }
 
     #[test]

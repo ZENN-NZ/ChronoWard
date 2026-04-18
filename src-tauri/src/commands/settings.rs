@@ -92,7 +92,11 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
 /// Blocked in emergency mode (though settings loss is less critical,
 /// consistency matters — if writes are blocked, ALL writes are blocked).
 #[tauri::command]
-pub async fn save_settings(settings: Settings, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn save_settings(
+    settings: Settings,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     guard_write!(state);
 
     let json = serde_json::to_string_pretty(&settings)
@@ -111,9 +115,21 @@ pub async fn save_settings(settings: Settings, state: State<'_, AppState>) -> Re
 
     atomic_write(&state.settings_path(), &to_write).await?;
 
+    // Enable or disable OS autostart based on the setting
+    let auto_start = settings.auto_start;
+
     // Update cache
     *state.settings.lock().unwrap() = Some(settings);
     info!("Settings saved");
+
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if auto_start {
+        let _ = manager.enable();
+    } else {
+        let _ = manager.disable();
+    }
+
     Ok(())
 }
 

@@ -22,6 +22,7 @@ Refactored and built with **Tauri v2** + **Rust** backend. All data is encrypted
 - **Hours warning** — after a configurable time (default: 16:30), shows a banner and stays on top until minimum hours are met
 - **Idle detection** — auto-minimizes to tray after 1 min of inactivity
 - **Keyboard shortcut** — `Ctrl+N` adds a new row; `Escape` closes modals
+- **Auto-start** — app starts automatically on boot
 
 ### Data
 
@@ -58,7 +59,7 @@ Refactored and built with **Tauri v2** + **Rust** backend. All data is encrypted
 
 > **Windows**: requires WebView2 (included in Windows 11; installer bootstraps it on Windows 10)  
 > **macOS**: requires Xcode Command Line Tools  
-> **Linux**: requires `webkit2gtk`, `libayatana-appindicator` or `libappindicator`, and `libsecret`
+> **Linux**: requires `webkit2gtk`, `libayatana-appindicator` or `libappindicator`, and `libsecret`. For the **Open on Startup** feature to function on Linux, your Desktop Environment or Window Manager must implement the XDG Autostart specification (e.g., GNOME, KDE Plasma, XFCE). The application creates a `.desktop` file in `~/.config/autostart/`.
 
 ### Install & Dev
 
@@ -145,6 +146,7 @@ All configurable from the **Settings** tab in the app:
 | Focus Time 3          | 16:00    | App surfaces to foreground                  |
 | Project Mode          | Off      | Enables per-row timers                      |
 | Detailed Mode         | Off      | Adds Ticket # and Description columns       |
+| Open on Startup       | On       | Starts ChronoWard automatically on boot     |
 
 ---
 

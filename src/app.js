@@ -253,6 +253,7 @@ function applySettingsToUI() {
   document.getElementById('settingIncrement').value   = settings.hourIncrement   || 0.5;
   document.getElementById('settingMinHours').value    = settings.minHoursWarning || 7.5;
   document.getElementById('settingWarningTime').value = settings.warningTime     || '16:30';
+  document.getElementById('settingAutoStart').checked = settings.autoStart ?? true;
   const ft = settings.focusTimes || ['11:00', '14:00', '16:00'];
   document.getElementById('focusTime1').value = ft[0] || '11:00';
   document.getElementById('focusTime2').value = ft[1] || '14:00';
@@ -271,6 +272,7 @@ async function saveSettings() {
     document.getElementById('focusTime2').value || '14:00',
     document.getElementById('focusTime3').value || '16:00',
   ];
+  settings.autoStart = document.getElementById('settingAutoStart').checked;
   settings.projectMode = document.getElementById('settingProjectMode').checked;
   projectMode = settings.projectMode;
   document.getElementById('projectModeToggle').checked = projectMode;

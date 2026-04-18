@@ -45,6 +45,10 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::settings::load_settings,
@@ -77,6 +81,30 @@ pub fn run() {
                 let _ = main.show();
                 let _ = main.set_focus();
             }
+
+            // Sync autostart state with the OS on startup, relying on settings defaults
+            // if it's the first time running.
+            let auto_start = {
+                let state = app.state::<AppState>();
+                let default_settings = crate::state::Settings::default();
+                // Attempt to read settings briefly to govern startup state (or just fallback to default)
+                // Actually, settings are async loaded. The plugin persists via OS. 
+                // We'll let `load_settings` handle this shortly after, but just to be safe:
+                let s_path = state.settings_path();
+                if let Ok(raw) = std::fs::read_to_string(&s_path) {
+                    serde_json::from_str::<crate::state::Settings>(&raw).unwrap_or(default_settings).auto_start
+                } else {
+                    default_settings.auto_start
+                }
+            };
+
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if auto_start {
+        let _ = manager.enable();
+    } else {
+        let _ = manager.disable();
+    }
 
             // overlay-clicked → hide overlay, restore main
             let app_handle = app.handle().clone();
