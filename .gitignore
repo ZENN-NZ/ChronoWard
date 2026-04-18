@@ -10,3 +10,6 @@ Chronoward.exe
 .env.example
 node_modules
 .vscode
+android
+ios
+*logo.png

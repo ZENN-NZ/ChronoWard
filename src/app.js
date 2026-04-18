@@ -737,7 +737,8 @@ function restoreTimers() {
 async function exportCSV() {
   saveCurrentSheet();
   const rows    = collectRows();
-  const dateStr = currentDate.replace(/-/g, '');
+  const [y, m, d] = currentDate.split('-');
+  const dateStr = `${y}-${m}-${d}`;
 
   const hasTicket = rows.some(r => (r.ticketNum || '').trim().length > 0);
   const hasDesc   = rows.some(r => (r.description || '').trim().length > 0);
