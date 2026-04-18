@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChronoWard - Protect your time, meet your goals</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body class="theme-midnight">
+
+  <div id="emergencyModeBanner" class="emergency-banner hidden">
+
+    <span class="banner-icon">🔒</span>
+
+    <span class="emergency-text">Read-only mode: OS keychain unavailable. Contact IT.</span>
+  
+  </div>
+  <!-- Hours Warning Banner -->
+  <div id="hoursWarningBanner" class="hours-banner hidden">
+    <span class="banner-icon">⚠️</span>
+    <span class="banner-text">You need to log at least <strong>7.5 hours</strong> before end of day — currently at <strong id="bannerCurrentHours">0</strong>h</span>
+  </div>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon"><icon class="png"></icon></span>
+        <span class="brand-text"> ChronoWard</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-view="timesheet" onclick="switchView('timesheet')">
+          <span class="nav-icon">📋</span>
+          <span>Sheet</span>
+        </button>
+        <button class="nav-btn" data-view="import" onclick="switchView('import')">
+          <span class="nav-icon">📂</span>
+          <span>Import</span>
+        </button>
+        <button class="nav-btn" data-view="settings" onclick="switchView('settings')">
+          <span class="nav-icon">⚙️</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="total-display">
+          <span class="total-label">TOTAL</span>
+          <span class="total-hours" id="totalHoursDisplay">0.0h</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ===== TIMESHEET VIEW ===== -->
+      <section class="view active" id="view-timesheet">
+        
+        <div class="view-header">
+          <div class="header-left">
+            <h1 class="view-title">Today's Log</h1>
+            <div class="date-picker-wrap">
+              <input type="date" id="selectedDate" class="date-input" />
+            </div>
+          </div>
+          
+          <div class="header-right">
+            <!-- Selection action bar — shown when rows are checked -->
+            <div class="selection-actions hidden" id="selectionActions">
+              <span class="selection-count" id="selectionCount">0 selected</span>
+              <button class="btn-danger" id="deleteSelectedBtn" onclick="deleteCheckedRows()">🗑 Delete</button>
+            </div>
+            
+            <div class="project-mode-toggle">
+              <span class="toggle-label">Project Mode</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="projectModeToggle" onchange="toggleProjectMode()" />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+              </label>
+            </div>
+
+            <div class="project-mode-toggle" id="detailedModeHeaderToggle" style="display:none;">
+              <span class="toggle-label">Detailed Mode</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="detailedModeToggle" onchange="toggleDetailedMode()" />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+              </label>
+            </div>
+            
+            <button class="btn-primary" onclick="addRow()" title="Add Row (Ctrl+N)">
+              <span>+ Add Row</span>
+            </button>
+            
+            <button class="btn-secondary" onclick="exportCSV()">
+              <span>↑ Export</span>
+            </button>
+          
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+          <table class="timesheet-table" id="timesheetTable">
+            <thead>
+              <tr>
+                <th class="col-select">
+                  <div class="select-all-wrap">
+                    <input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll(this)" class="row-checkbox" />
+                  </div>
+
+                </th>
+                <th class="col-task">Task</th>
+                <th class="col-hours">Hours</th>
+                <th class="col-detailed hidden" id="detailedColHeader">Ticket #</th>
+                <th class="col-desc hidden" id="descColHeader">Description</th>
+                <th class="col-timer hidden" id="timerColHeader">Timer</th>
+                <th class="col-ot">OT</th>
+                <th class="col-actions"></th>
+              </tr>
+            </thead>
+            
+            <tbody id="timesheetBody">
+              <!-- rows inserted here -->
+            </tbody>
+
+          </table>
+        </div>
+
+        <!-- Footer -->
+        <div class="table-footer">
+          <div class="footer-stats">
+            <div class="stat-chip">
+              <span class="stat-label">Regular</span>
+              <span class="stat-val" id="regularHours">0.0h</span>
+            </div>
+
+            <div class="stat-chip ot">
+              <span class="stat-label">Overtime</span>
+              <span class="stat-val" id="overtimeHours">0.0h</span>
+            </div>
+
+            <div class="stat-chip total">
+              <span class="stat-label">Total</span>
+              <span class="stat-val" id="footerTotal">0.0h</span>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== IMPORT VIEW ===== -->
+      <section class="view" id="view-import">
+        <div class="view-header">
+          
+          <div class="header-left">
+            <h1 class="view-title">Import CSV</h1>
+          </div>
+
+          <div class="header-right">
+            <button class="btn-secondary hidden" id="clearImportBtn" onclick="clearImportedFiles()" style="margin-right:8px;">
+              <span>✕ Clear Results</span>
+            </button>
+            <button class="btn-primary" onclick="importCSV()">
+              <span>↓ Import Files</span>
+            </button>
+          </div>
+
+        </div>
+        <div id="importedFiles" class="imported-files-container">
+          
+          <div class="empty-state">
+            <span class="empty-icon">📂</span>
+            <p>No files imported yet</p>
+            <p class="empty-sub">Click "Import Files" to load CSV timesheets</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS VIEW ===== -->
+      <section class="view" id="view-settings">
+        <div class="view-header">
+          <div class="header-left">
+            <h1 class="view-title">Settings</h1>
+          </div>
+
+          <div class="header-right">
+            <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+          </div>
+
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Appearance</h3>
+            <div class="setting-row">
+              <label class="setting-label">Theme</label>
+              <div class="theme-grid" id="themeGrid">
+                <!-- themes rendered by JS -->
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="settings-card-title">Time & Hours</h3>
+            <div class="setting-row">
+              <label class="setting-label">Hour Increment</label>
+              <select class="setting-select" id="settingIncrement">
+                <option value="0.25">0.25h (15 min)</option>
+                <option value="0.5" selected>0.5h (30 min)</option>
+                <option value="1">1h</option>
+              </select>
+            </div>
+
+            <div class="setting-row">
+              <label class="setting-label">Minimum Hours Warning</label>
+              <input type="number" class="setting-input" id="settingMinHours" value="7.5" min="0" max="24" step="0.5" />
+            </div>
+            <div class="setting-row">
+              <label class="setting-label">Warning Trigger Time</label>
+              <input type="time" class="setting-input" id="settingWarningTime" value="16:30" />
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="settings-card-title">Focus Times</h3>
+            <p class="settings-help">At these times, the app comes to the front for 5 seconds to remind you to log hours.</p>
+            <div class="setting-row">
+              <label class="setting-label">Focus Time 1</label>
+              <input type="time" class="setting-input" id="focusTime1" value="11:00" />
+            </div>
+
+            <div class="setting-row">
+              <label class="setting-label">Focus Time 2</label>
+              <input type="time" class="setting-input" id="focusTime2" value="14:00" />
+            </div>
+
+            <div class="setting-row">
+              <label class="setting-label">Focus Time 3</label>
+              <input type="time" class="setting-input" id="focusTime3" value="16:00" />
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="settings-card-title">Modes</h3>
+            
+            <div class="setting-row">
+              <label class="setting-label">Project Mode</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingProjectMode" onchange="syncProjectModeFromSettings()" />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <label class="setting-label">Detailed Mode</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingDetailedMode" onchange="syncDetailedModeFromSettings()" />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+              </label>
+            </div>
+
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+
+  <div id="descModal" class="desc-modal-backdrop hidden" onclick="closeDescModal(event)">
+    <div class="desc-modal">
+      <div class="desc-modal-header">
+        <span class="desc-modal-title">Description</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary" onclick="copyDescription()" id="descCopyBtn">⧉ Copy</button>
+          <button class="btn-secondary" onclick="closeDescModal()">✕</button>
+        </div>
+      </div>
+      <textarea id="descModalTextarea" class="desc-textarea" placeholder="Add a detailed description…"></textarea>
+    </div>
+  </div>
+
+</body>
+</html>

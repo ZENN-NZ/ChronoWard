@@ -1,0 +1,76 @@
+[package]
+name = "chronoward-lib"
+version = "1.0.0"
+edition = "2021"
+description = "ChronoWard — Protect your time, meet your goals"
+authors = ["Jeremiah Benjamin"]
+license = "MIT"
+
+# Tells Rust to compile this as both a library (for tests) and a binary.
+# The binary entry point is main.rs; the library surface is lib.rs.
+[lib]
+name = "chronoward_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "chronoward"
+path = "src/main.rs"
+
+[dependencies]
+# ── Tauri core ────────────────────────────────────────────────────────────────
+tauri = { version = "2", features = [
+    "tray-icon",
+    "image-png",
+] }
+tauri-plugin-dialog = "2"
+
+# ── Serialisation ─────────────────────────────────────────────────────────────
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+
+# ── Async runtime ─────────────────────────────────────────────────────────────
+tokio = { version = "1", features = ["full"] }
+
+# ── OS keychain (replaces Electron safeStorage) ───────────────────────────────
+# Wraps DPAPI on Windows, Keychain on macOS, libsecret on Linux.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# ── Encryption (used as inner layer by keyring, and for key generation) ───────
+aes-gcm = "0.10"
+rand    = "0.8"
+
+# ── Hex encoding for keychain key storage ────────────────────────────────────
+hex = "0.4"
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+tracing             = "0.1"
+tracing-subscriber  = { version = "0.3", features = ["env-filter"] }
+
+# ── Error handling ────────────────────────────────────────────────────────────
+anyhow    = "1"
+thiserror = "1"
+
+# ── Time handling ─────────────────────────────────────────────────────────────
+chrono = { version = "0.4", features = ["serde"] }
+
+# ── Platform data directories ─────────────────────────────────────────────────
+# Used for resolving the data directory cross-platform.
+dirs = "5"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# Default features for standard builds.
+default = ["custom-protocol"]
+# Required for Tauri to serve frontend assets via the custom protocol.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+# Optimise for size in release builds — important for the installer advantage
+# over Electron. LTO (link-time optimisation) reduces binary size significantly.
+opt-level     = "z"      # optimise for size
+lto           = true     # link-time optimisation
+codegen-units = 1        # single codegen unit for maximum LTO effectiveness
+strip         = true     # strip debug symbols from release binary
+panic         = "abort"  # smaller binary, no unwinding tables

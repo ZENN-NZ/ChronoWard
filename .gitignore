@@ -1,0 +1,12 @@
+target/
+ChronoWard.zip
+Chronoward.exe
+./node_modules
+./src-tauri/target
+./src-tauri/binaries
+./src-tauri/src-tauri.code-workspace
+.env
+.env.local
+.env.example
+node_modules
+.vscode
