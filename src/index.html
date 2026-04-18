@@ -12,12 +12,10 @@
 <body class="theme-midnight">
 
   <div id="emergencyModeBanner" class="emergency-banner hidden">
-
     <span class="banner-icon">🔒</span>
-
     <span class="emergency-text">Read-only mode: OS keychain unavailable. Contact IT.</span>
-  
   </div>
+
   <!-- Hours Warning Banner -->
   <div id="hoursWarningBanner" class="hours-banner hidden">
     <span class="banner-icon">⚠️</span>
@@ -33,15 +31,15 @@
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-btn active" data-view="timesheet" onclick="switchView('timesheet')">
+        <button class="nav-btn active" data-view="timesheet">
           <span class="nav-icon">📋</span>
           <span>Sheet</span>
         </button>
-        <button class="nav-btn" data-view="import" onclick="switchView('import')">
+        <button class="nav-btn" data-view="import">
           <span class="nav-icon">📂</span>
           <span>Import</span>
         </button>
-        <button class="nav-btn" data-view="settings" onclick="switchView('settings')">
+        <button class="nav-btn" data-view="settings">
           <span class="nav-icon">⚙️</span>
           <span>Settings</span>
         </button>
@@ -73,13 +71,13 @@
             <!-- Selection action bar — shown when rows are checked -->
             <div class="selection-actions hidden" id="selectionActions">
               <span class="selection-count" id="selectionCount">0 selected</span>
-              <button class="btn-danger" id="deleteSelectedBtn" onclick="deleteCheckedRows()">🗑 Delete</button>
+              <button class="btn-danger" id="deleteSelectedBtn">🗑 Delete</button>
             </div>
             
             <div class="project-mode-toggle">
               <span class="toggle-label">Project Mode</span>
               <label class="toggle-switch">
-                <input type="checkbox" id="projectModeToggle" onchange="toggleProjectMode()" />
+                <input type="checkbox" id="projectModeToggle" />
                 <span class="toggle-track">
                   <span class="toggle-thumb"></span>
                 </span>
@@ -89,18 +87,18 @@
             <div class="project-mode-toggle" id="detailedModeHeaderToggle" style="display:none;">
               <span class="toggle-label">Detailed Mode</span>
               <label class="toggle-switch">
-                <input type="checkbox" id="detailedModeToggle" onchange="toggleDetailedMode()" />
+                <input type="checkbox" id="detailedModeToggle" />
                 <span class="toggle-track">
                   <span class="toggle-thumb"></span>
                 </span>
               </label>
             </div>
             
-            <button class="btn-primary" onclick="addRow()" title="Add Row (Ctrl+N)">
+            <button class="btn-primary" id="addRowBtn" title="Add Row (Ctrl+N)">
               <span>+ Add Row</span>
             </button>
             
-            <button class="btn-secondary" onclick="exportCSV()">
+            <button class="btn-secondary" id="exportBtn">
               <span>↑ Export</span>
             </button>
           
@@ -114,9 +112,8 @@
               <tr>
                 <th class="col-select">
                   <div class="select-all-wrap">
-                    <input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll(this)" class="row-checkbox" />
+                    <input type="checkbox" id="selectAllCheck" class="row-checkbox" />
                   </div>
-
                 </th>
                 <th class="col-task">Task</th>
                 <th class="col-hours">Hours</th>
@@ -166,10 +163,10 @@
           </div>
 
           <div class="header-right">
-            <button class="btn-secondary hidden" id="clearImportBtn" onclick="clearImportedFiles()" style="margin-right:8px;">
+            <button class="btn-secondary hidden" id="clearImportBtn" style="margin-right:8px;">
               <span>✕ Clear Results</span>
             </button>
-            <button class="btn-primary" onclick="importCSV()">
+            <button class="btn-primary" id="importBtn">
               <span>↓ Import Files</span>
             </button>
           </div>
@@ -194,7 +191,7 @@
           </div>
 
           <div class="header-right">
-            <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+            <button class="btn-primary" id="saveSettingsBtn">Save Settings</button>
           </div>
 
         </div>
@@ -256,7 +253,7 @@
             <div class="setting-row">
               <label class="setting-label">Project Mode</label>
               <label class="toggle-switch">
-                <input type="checkbox" id="settingProjectMode" onchange="syncProjectModeFromSettings()" />
+                <input type="checkbox" id="settingProjectMode" />
                 <span class="toggle-track">
                   <span class="toggle-thumb"></span>
                 </span>
@@ -266,7 +263,7 @@
             <div class="setting-row">
               <label class="setting-label">Detailed Mode</label>
               <label class="toggle-switch">
-                <input type="checkbox" id="settingDetailedMode" onchange="syncDetailedModeFromSettings()" />
+                <input type="checkbox" id="settingDetailedMode" />
                 <span class="toggle-track">
                   <span class="toggle-thumb"></span>
                 </span>
@@ -281,13 +278,13 @@
 
   <script src="app.js"></script>
 
-  <div id="descModal" class="desc-modal-backdrop hidden" onclick="closeDescModal(event)">
+  <div id="descModal" class="desc-modal-backdrop hidden">
     <div class="desc-modal">
       <div class="desc-modal-header">
         <span class="desc-modal-title">Description</span>
         <div style="display:flex;gap:8px;">
-          <button class="btn-secondary" onclick="copyDescription()" id="descCopyBtn">⧉ Copy</button>
-          <button class="btn-secondary" onclick="closeDescModal()">✕</button>
+          <button class="btn-secondary" id="descCopyBtn">⧉ Copy</button>
+          <button class="btn-secondary" id="descCloseBtn">✕</button>
         </div>
       </div>
       <textarea id="descModalTextarea" class="desc-textarea" placeholder="Add a detailed description…"></textarea>

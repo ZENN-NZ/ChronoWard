@@ -46,6 +46,7 @@ function generateId() {
 // ---- Init ----
 async function init() {
   // Wire up event listeners BEFORE loading data
+  setupStaticListeners();
   setupEventListeners();
 
   settings = await invoke('load_settings');
@@ -141,6 +142,41 @@ function enterEmergencyMode(info) {
 
 function showCorruptDataWarning(quarantinedPath) {
   showToast(`⚠ Corrupt data found and quarantined to: ${quarantinedPath}`, 8000);
+}
+
+// ── Static DOM event listeners (replaces inline onclick/onchange) ─────────────
+
+function setupStaticListeners() {
+  // Nav
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  });
+
+  // Timesheet header buttons
+  document.getElementById('addRowBtn').addEventListener('click', () => addRow());
+  document.getElementById('exportBtn').addEventListener('click', () => exportCSV());
+  document.getElementById('deleteSelectedBtn').addEventListener('click', () => deleteCheckedRows());
+
+  // Project / Detailed mode toggles
+  document.getElementById('projectModeToggle').addEventListener('change', () => toggleProjectMode());
+  document.getElementById('detailedModeToggle').addEventListener('change', () => toggleDetailedMode());
+
+  // Select all checkbox
+  document.getElementById('selectAllCheck').addEventListener('change', (e) => toggleSelectAll(e.target));
+
+  // Import view
+  document.getElementById('importBtn').addEventListener('click', () => importCSV());
+  document.getElementById('clearImportBtn').addEventListener('click', () => clearImportedFiles());
+
+  // Settings
+  document.getElementById('saveSettingsBtn').addEventListener('click', () => saveSettings());
+  document.getElementById('settingProjectMode').addEventListener('change', () => syncProjectModeFromSettings());
+  document.getElementById('settingDetailedMode').addEventListener('change', () => syncDetailedModeFromSettings());
+
+  // Description modal
+  document.getElementById('descModal').addEventListener('click', (e) => closeDescModal(e));
+  document.getElementById('descCopyBtn').addEventListener('click', () => copyDescription());
+  document.getElementById('descCloseBtn').addEventListener('click', () => closeDescModal());
 }
 
 // ── Event listeners (replaces electronAPI.on* pattern) ───────────────────────
@@ -403,98 +439,165 @@ function addRow(data = null, insertAfterEl = null) {
   const description = data?.description || '';
   const hasDesc     = description.length > 0;
 
-  tr.innerHTML = `
-    <td class="col-select">
-      <input type="checkbox" class="row-checkbox"
-        aria-label="Select row"
-        onchange="onRowCheck(this)" />
-    </td>
+  // ── col-select ──
+  const tdSelect = document.createElement('td');
+  tdSelect.className = 'col-select';
+  const rowCheckbox = document.createElement('input');
+  rowCheckbox.type = 'checkbox';
+  rowCheckbox.className = 'row-checkbox';
+  rowCheckbox.setAttribute('aria-label', 'Select row');
+  rowCheckbox.addEventListener('change', () => onRowCheck(rowCheckbox));
+  tdSelect.appendChild(rowCheckbox);
+  tr.appendChild(tdSelect);
 
-    <td class="col-task">
-      <input type="text"
-        class="task-input"
-        placeholder="Describe your work…"
-        value="${escHtml(task)}"
-        aria-label="Task description"
-        oninput="onDataChangeDebounced()"
-        onblur="saveCurrentSheet()"
-      />
-    </td>
+  // ── col-task ──
+  const tdTask = document.createElement('td');
+  tdTask.className = 'col-task';
+  const taskInput = document.createElement('input');
+  taskInput.type = 'text';
+  taskInput.className = 'task-input';
+  taskInput.placeholder = 'Describe your work…';
+  taskInput.value = task;
+  taskInput.setAttribute('aria-label', 'Task description');
+  taskInput.addEventListener('input', () => onDataChangeDebounced());
+  taskInput.addEventListener('blur', () => saveCurrentSheet());
+  tdTask.appendChild(taskInput);
+  tr.appendChild(tdTask);
 
-    <td class="col-hours">
-      <div class="hours-stepper" role="group" aria-label="Hours">
-        <button class="stepper-btn" onclick="stepHours('${timerId}', -1)" aria-label="Decrease hours">−</button>
-        <input type="number"
-          class="hours-input"
-          value="${hours}"
-          min="0" max="24"
-          step="${settings.hourIncrement || 0.5}"
-          aria-label="Hours worked"
-          oninput="onDataChangeDebounced()"
-          onblur="saveCurrentSheet()"
-        />
-        <button class="stepper-btn" onclick="stepHours('${timerId}', 1)" aria-label="Increase hours">+</button>
-      </div>
-    </td>
+  // ── col-hours ──
+  const tdHours = document.createElement('td');
+  tdHours.className = 'col-hours';
+  const stepper = document.createElement('div');
+  stepper.className = 'hours-stepper';
+  stepper.setAttribute('role', 'group');
+  stepper.setAttribute('aria-label', 'Hours');
+  const btnMinus = document.createElement('button');
+  btnMinus.className = 'stepper-btn';
+  btnMinus.setAttribute('aria-label', 'Decrease hours');
+  btnMinus.textContent = '−';
+  btnMinus.addEventListener('click', () => stepHours(timerId, -1));
+  const hoursInput = document.createElement('input');
+  hoursInput.type = 'number';
+  hoursInput.className = 'hours-input';
+  hoursInput.value = hours;
+  hoursInput.min = 0;
+  hoursInput.max = 24;
+  hoursInput.step = settings.hourIncrement || 0.5;
+  hoursInput.setAttribute('aria-label', 'Hours worked');
+  hoursInput.addEventListener('input', () => onDataChangeDebounced());
+  hoursInput.addEventListener('blur', () => saveCurrentSheet());
+  const btnPlus = document.createElement('button');
+  btnPlus.className = 'stepper-btn';
+  btnPlus.setAttribute('aria-label', 'Increase hours');
+  btnPlus.textContent = '+';
+  btnPlus.addEventListener('click', () => stepHours(timerId, 1));
+  stepper.appendChild(btnMinus);
+  stepper.appendChild(hoursInput);
+  stepper.appendChild(btnPlus);
+  tdHours.appendChild(stepper);
+  tr.appendChild(tdHours);
 
-    <td class="col-detailed ticket-col-cell${detailedMode ? '' : ' hidden'}">
-      <input type="text"
-        class="ticket-input"
-        placeholder="e.g. 12345"
-        value="${escHtml(ticketNum)}"
-        maxlength="11"
-        aria-label="Ticket number"
-        oninput="onDataChangeDebounced()"
-        onblur="saveCurrentSheet()"
-      />
-    </td>
+  // ── col-detailed (ticket) ──
+  const tdTicket = document.createElement('td');
+  tdTicket.className = 'col-detailed ticket-col-cell' + (detailedMode ? '' : ' hidden');
+  const ticketInput = document.createElement('input');
+  ticketInput.type = 'text';
+  ticketInput.className = 'ticket-input';
+  ticketInput.placeholder = 'e.g. 12345';
+  ticketInput.value = ticketNum;
+  ticketInput.maxLength = 11;
+  ticketInput.setAttribute('aria-label', 'Ticket number');
+  ticketInput.addEventListener('input', () => onDataChangeDebounced());
+  ticketInput.addEventListener('blur', () => saveCurrentSheet());
+  tdTicket.appendChild(ticketInput);
+  tr.appendChild(tdTicket);
 
-    <td class="col-desc desc-col-cell${detailedMode ? '' : ' hidden'}">
-      <button class="desc-btn${hasDesc ? ' has-desc' : ''}"
-        data-desc="${escHtml(description)}"
-        data-timer-id="${timerId}"
-        onclick="openDescModal('${timerId}')"
-        aria-label="Open description"
-        title="${hasDesc ? 'Edit description' : 'Add description'}">
-        ${hasDesc ? '📝' : '＋'}
-      </button>
-    </td>
+  // ── col-desc ──
+  const tdDesc = document.createElement('td');
+  tdDesc.className = 'col-desc desc-col-cell' + (detailedMode ? '' : ' hidden');
+  const descBtn = document.createElement('button');
+  descBtn.className = 'desc-btn' + (hasDesc ? ' has-desc' : '');
+  descBtn.dataset.desc = description;
+  descBtn.dataset.timerId = timerId;
+  descBtn.setAttribute('aria-label', 'Open description');
+  descBtn.title = hasDesc ? 'Edit description' : 'Add description';
+  descBtn.textContent = hasDesc ? '📝' : '＋';
+  descBtn.addEventListener('click', () => openDescModal(timerId));
+  tdDesc.appendChild(descBtn);
+  tr.appendChild(tdDesc);
 
-    <td class="col-timer timer-col-cell${projectMode ? '' : ' hidden'}">
-      <div class="timer-cell">
-        <button class="timer-btn" data-timer-id="${timerId}"
-          aria-label="Start timer"
-          onclick="toggleTimer('${timerId}')">
-          <span class="timer-dot" aria-hidden="true"></span>
-          <span class="timer-display" id="timer-display-${timerId}">00:00:00</span>
-        </button>
-        <button class="timer-stop-btn hidden" id="timer-stop-${timerId}"
-          onclick="stopTimer('${timerId}')"
-          aria-label="Stop timer and log hours"
-          title="Stop & add hours">■</button>
-      </div>
-    </td>
+  // ── col-timer ──
+  const tdTimer = document.createElement('td');
+  tdTimer.className = 'col-timer timer-col-cell' + (projectMode ? '' : ' hidden');
+  const timerCell = document.createElement('div');
+  timerCell.className = 'timer-cell';
+  const timerBtn = document.createElement('button');
+  timerBtn.className = 'timer-btn';
+  timerBtn.dataset.timerId = timerId;
+  timerBtn.setAttribute('aria-label', 'Start timer');
+  timerBtn.addEventListener('click', () => toggleTimer(timerId));
+  const timerDot = document.createElement('span');
+  timerDot.className = 'timer-dot';
+  timerDot.setAttribute('aria-hidden', 'true');
+  const timerDisplay = document.createElement('span');
+  timerDisplay.className = 'timer-display';
+  timerDisplay.id = `timer-display-${timerId}`;
+  timerDisplay.textContent = '00:00:00';
+  timerBtn.appendChild(timerDot);
+  timerBtn.appendChild(timerDisplay);
+  const timerStopBtn = document.createElement('button');
+  timerStopBtn.className = 'timer-stop-btn hidden';
+  timerStopBtn.id = `timer-stop-${timerId}`;
+  timerStopBtn.setAttribute('aria-label', 'Stop timer and log hours');
+  timerStopBtn.title = 'Stop & add hours';
+  timerStopBtn.textContent = '■';
+  timerStopBtn.addEventListener('click', () => stopTimer(timerId));
+  timerCell.appendChild(timerBtn);
+  timerCell.appendChild(timerStopBtn);
+  tdTimer.appendChild(timerCell);
+  tr.appendChild(tdTimer);
 
-    <td class="col-ot">
-      <button class="ot-toggle${otActive}"
-        role="switch"
-        aria-checked="${ot}"
-        aria-label="Overtime"
-        onclick="toggleOT(this, '${timerId}')"
-        title="Toggle Overtime">OT</button>
-    </td>
+  // ── col-ot ──
+  const tdOt = document.createElement('td');
+  tdOt.className = 'col-ot';
+  const otBtn = document.createElement('button');
+  otBtn.className = 'ot-toggle' + (ot ? ' active' : '');
+  otBtn.setAttribute('role', 'switch');
+  otBtn.setAttribute('aria-checked', ot);
+  otBtn.setAttribute('aria-label', 'Overtime');
+  otBtn.title = 'Toggle Overtime';
+  otBtn.textContent = 'OT';
+  otBtn.addEventListener('click', () => toggleOT(otBtn, timerId));
+  tdOt.appendChild(otBtn);
+  tr.appendChild(tdOt);
 
-    <td class="col-actions">
-      <div class="row-menu-wrap">
-        <button class="row-menu-btn" aria-label="Row actions"
-          onclick="openRowMenu(event, '${timerId}')">⋮</button>
-        <div class="row-dropdown" id="row-menu-${timerId}">
-          <button class="row-dropdown-item" onclick="duplicateRow('${timerId}'); closeAllMenus()">⧉ Duplicate</button>
-          <button class="row-dropdown-item danger" onclick="deleteRow('${timerId}'); closeAllMenus()">🗑 Delete</button>
-        </div>
-      </div>
-    </td>
-  `;
+  // ── col-actions ──
+  const tdActions = document.createElement('td');
+  tdActions.className = 'col-actions';
+  const menuWrap = document.createElement('div');
+  menuWrap.className = 'row-menu-wrap';
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'row-menu-btn';
+  menuBtn.setAttribute('aria-label', 'Row actions');
+  menuBtn.textContent = '⋮';
+  menuBtn.addEventListener('click', (e) => openRowMenu(e, timerId));
+  const dropdown = document.createElement('div');
+  dropdown.className = 'row-dropdown';
+  dropdown.id = `row-menu-${timerId}`;
+  const dupItem = document.createElement('button');
+  dupItem.className = 'row-dropdown-item';
+  dupItem.textContent = '⧉ Duplicate';
+  dupItem.addEventListener('click', () => { duplicateRow(timerId); closeAllMenus(); });
+  const delItem = document.createElement('button');
+  delItem.className = 'row-dropdown-item danger';
+  delItem.textContent = '🗑 Delete';
+  delItem.addEventListener('click', () => { deleteRow(timerId); closeAllMenus(); });
+  dropdown.appendChild(dupItem);
+  dropdown.appendChild(delItem);
+  menuWrap.appendChild(menuBtn);
+  menuWrap.appendChild(dropdown);
+  tdActions.appendChild(menuWrap);
+  tr.appendChild(tdActions);
 
   if (ot) tr.classList.add('ot-row');
   if (insertAfterEl) insertAfterEl.after(tr);
@@ -738,7 +841,7 @@ async function exportCSV() {
   saveCurrentSheet();
   const rows    = collectRows();
   const [y, m, d] = currentDate.split('-');
-  const dateStr = `${y}-${m}-${d}`;
+  const dateStr = `${d}-${m}-${y}`;
 
   const hasTicket = rows.some(r => (r.ticketNum || '').trim().length > 0);
   const hasDesc   = rows.some(r => (r.description || '').trim().length > 0);
