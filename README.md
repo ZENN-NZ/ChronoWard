@@ -1,5 +1,5 @@
 <p align="center">
-![Logo](128x128@2x.png)
+<img width="256" height="256" alt="128x128@2x" src="https://github.com/user-attachments/assets/29eeee54-4ac1-4472-9f79-7a1cdb2c4c97" />
 </p>
 
 # ChronoWard — Protect your time, meet your goals
