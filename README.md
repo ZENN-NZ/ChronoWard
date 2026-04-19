@@ -1,4 +1,8 @@
-# ⏱ ChronoWard — Protect your time, meet your goals
+<p align="center">
+![Logo](128x128@2x.png)
+</p>
+
+# ChronoWard — Protect your time, meet your goals
 
 > A secure, fully offline timesheet application — minimal, sleek, and built for neurodivergent workflows.
 
@@ -76,8 +80,8 @@ npm run tauri build
 
 Outputs are placed in `src-tauri/target/release/bundle/`:
 
-
 ### Additional Icon Generation
+
 ```bash
 npm run tauri icon src-tauri/icons/icon.png
 ```
