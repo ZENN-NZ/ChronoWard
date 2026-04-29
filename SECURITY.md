@@ -72,7 +72,7 @@ No external resources are loaded. No telemetry. No analytics.
 | Version | Supported |
 |---------|-----------|
 | 1.x (current) | ✅ |
-| < 1.0 | ❌ |
+| < 1.x (current) | ❌ |
 
 ---
 

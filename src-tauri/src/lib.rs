@@ -85,8 +85,13 @@ pub fn run() {
             // Show main window on startup — it starts hidden in conf so it can
             // also be used as the minimised-to-tray state. Show it explicitly here.
             if let Some(main) = app.get_webview_window("main") {
-                let _ = main.show();
-                let _ = main.set_focus();
+                // Small delay to ensure webview content is loaded before showing
+            let main_clone = main.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    let _ = main_clone.show();
+                    let _ = main_clone.set_focus();
+                });
             }
 
             // Sync autostart state with the OS on startup, relying on settings defaults

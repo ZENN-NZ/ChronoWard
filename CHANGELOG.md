@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2] - 2026-04-22
+
+### Fixed
+- Autostart issue - Webview2 not loading on startup at random.
+
+---
+
 ## [1.1.1] - 2026-04-18
 
 ### Fixed
