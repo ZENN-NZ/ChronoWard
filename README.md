@@ -129,8 +129,12 @@ ChronoWard/
 │   ├── build.rs
 │   ├── Cargo.toml
 │   └── tauri.conf.json
-├── package.json
-└── README.md
+├── .gitignore
+├── CHANGELOG.md
+├── README.md
+├── SECURITY.md
+├── package-lock.json
+└── package.json
 ```
 
 ---
