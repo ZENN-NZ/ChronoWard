@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.3] - 2026-04-22
+### Fixed
+- Warning timer issue - App would not pop up automatically when minimised, if hours were less than 7.5
+
+
 ## [1.1.2] - 2026-04-22
 
 ### Fixed
