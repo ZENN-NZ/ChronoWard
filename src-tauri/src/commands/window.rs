@@ -1,6 +1,17 @@
 use tauri::{Manager, WebviewWindow};
 use tracing::{debug, warn};
 
+use crate::state::AppState;
+
+#[tauri::command]
+pub fn set_warning_active(active: bool, app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let mut flag = state.warning_active.lock().unwrap();
+    *flag = active;
+    debug!("set_warning_active: {active}");
+    Ok(())
+}
+
 #[tauri::command]
 pub fn set_always_on_top(value: bool, app: tauri::AppHandle) -> Result<(), String> {
     let window = get_main_window(&app)?;

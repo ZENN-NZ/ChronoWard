@@ -1074,11 +1074,13 @@ function showBanner(current, required) {
     reqText.innerHTML = `You need to log at least <strong>${required}hrs</strong> before end of day — currently at <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h`;
   }
   banner.classList.remove('hidden');
+  invoke('set_warning_active', { active: true }).catch(() => {});
   emit('warning-active').catch(() => {});
 }
 
 function hideBanner() {
   document.getElementById('hoursWarningBanner').classList.add('hidden');
+  invoke('set_warning_active', { active: false }).catch(() => {});
   invoke('set_always_on_top', { value: false }).catch(() => {});
 }
 

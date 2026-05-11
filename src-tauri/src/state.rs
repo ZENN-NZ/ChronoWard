@@ -125,6 +125,11 @@ pub struct AppState {
     /// Tracks whether any data file was found in plaintext (legacy) format
     /// on last load, so the next save will re-encrypt it.
     pub has_legacy_plaintext: Mutex<bool>,
+
+    /// Tracks whether the hours warning banner is currently active.
+    /// Set by the frontend via `set_warning_active` command, checked by the
+    /// scheduler on each tick to decide whether to restore the window.
+    pub warning_active: Mutex<bool>,
 }
 
 impl AppState {
@@ -138,6 +143,7 @@ impl AppState {
             emergency_mode: None,
             settings: Mutex::new(None),
             has_legacy_plaintext: Mutex::new(false),
+            warning_active: Mutex::new(false),
         }
     }
 

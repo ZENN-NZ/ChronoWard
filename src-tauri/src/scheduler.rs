@@ -94,11 +94,27 @@ async fn tick(app: &AppHandle) {
     }
 
     // ── Hours warning ─────────────────────────────────────────────────────────
-    // After the configured warning time, tell the renderer to check its totals.
-    // The renderer owns the actual hours data — we just prod it.
+    // After the configured warning time, if the frontend has flagged the
+    // warning as active (hours below minimum), restore the window so the
+    // user sees the banner. Otherwise leave the window alone.
     if let Some((wh, wm)) = parse_hhmm(&settings.warning_time) {
         let warning_secs = wh * 3600 + wm * 60;
         if current_secs >= warning_secs {
+            let warning_active = {
+                let state = app.state::<AppState>();
+                let guard = state.warning_active.lock().unwrap();
+                *guard
+            };
+            if warning_active {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Some(overlay) = app.get_webview_window("overlay") {
+                        let _ = overlay.hide();
+                    }
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
             let _ = app.emit("check-hours-warning", ());
         }
     }

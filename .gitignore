@@ -5,6 +5,8 @@ Chronoward.exe
 ./src-tauri/target
 ./src-tauri/binaries
 ./src-tauri/src-tauri.code-workspace
+./.claude
+.claude/
 .env
 .env.local
 .env.example

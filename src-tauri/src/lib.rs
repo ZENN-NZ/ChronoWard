@@ -69,6 +69,7 @@ pub fn run() {
             commands::csv::get_data_dir,
             commands::window::show_overlay_cmd,
             commands::window::set_always_on_top,
+            commands::window::set_warning_active,
             commands::window::show_window,
             commands::window::minimize_to_tray,
         ])
@@ -132,14 +133,16 @@ pub fn run() {
                 }
             });
 
-            // warning-active → restore main if hidden
+            // warning-active → restore main unconditionally (handles minimized and hidden)
             let app_handle2 = app.handle().clone();
             app.listen("warning-active", move |_| {
+                if let Some(overlay) = app_handle2.get_webview_window("overlay") {
+                    let _ = overlay.hide();
+                }
                 if let Some(main) = app_handle2.get_webview_window("main") {
-                    if !main.is_visible().unwrap_or(true) {
-                        let _ = main.show();
-                        let _ = main.set_focus();
-                    }
+                    let _ = main.show();
+                    let _ = main.unminimize();
+                    let _ = main.set_focus();
                 }
             });
 
