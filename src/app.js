@@ -89,12 +89,14 @@ async function init() {
   loadSheetForDate(currentDate);
   restoreTimers();
   setupHoursWarning();
+  renderWeeklyCompletion();
   setupKeyboardShortcuts();
 
   document.getElementById('selectedDate').addEventListener('change', (e) => {
     saveCurrentSheet();
     currentDate = e.target.value;
     loadSheetForDate(currentDate);
+    renderWeeklyCompletion();
   });
 
   document.addEventListener('mousemove', () => { window.lastActivity = Date.now(); });
@@ -207,6 +209,106 @@ function getTodayString() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// ---- Weekly completion helpers ----
+
+// Get the Monday (start) of the ISO week containing a given date
+function getWeekMonday(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0=Sun, 1=Mon, ...
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return formatDate(d);
+}
+
+// Format a Date to YYYY-MM-DD
+function formatDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Get the day name abbreviation (Mon, Tue, ...)
+function dayAbbr(dateStr) {
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return days[new Date(dateStr + 'T00:00:00').getDay()];
+}
+
+// Compute total hours for a given date from sheets data
+function getDayHours(dateStr) {
+  const rows = sheets[dateStr] || [];
+  let total = 0;
+  rows.forEach(r => {
+    total += r.hours || 0;
+  });
+  return total;
+}
+
+// Get all weekday date strings (Mon-Fri) for the current week, in order
+function getWeekdayDates(dateStr) {
+  const monday = new Date(getWeekMonday(dateStr) + 'T00:00:00');
+  const dates = [];
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    dates.push(formatDate(d));
+  }
+  return dates;
+}
+
+// Render the weekly completion banner in the footer
+function renderWeeklyCompletion() {
+  const container = document.getElementById('weeklyDays');
+  const wrapper   = document.getElementById('weeklyCompletion');
+  if (!container || !wrapper) return;
+
+  const today     = getTodayString();
+  const now       = new Date();
+  const [wh, wm]  = (settings.warningTime || '16:30').split(':').map(Number);
+  const warningMins = wh * 60 + wm;
+  const currentMins = now.getHours() * 60 + now.getMinutes();
+  const minHours  = settings.minHoursWarning || 7.5;
+
+  // Get all weekday dates for this week (Mon-Fri)
+  const weekdayDates = getWeekdayDates(today);
+
+  // Filter: only show days that are today or in the past
+  const visibleDates = weekdayDates.filter(d => d <= today);
+
+  if (visibleDates.length === 0) {
+    wrapper.classList.add('hidden');
+    return;
+  }
+
+  // Build chips for visible dates
+  const chips = [];
+
+  visibleDates.forEach(dateStr => {
+    const hours = getDayHours(dateStr);
+    const isComplete = hours >= minHours;
+
+    // Only show today if we're past warning time
+    const isToday = dateStr === today;
+    if (isToday && currentMins < warningMins) return;
+
+    const abbr = dayAbbr(dateStr);
+    const cls = isComplete ? 'completed' : 'incomplete';
+    const chip = document.createElement('span');
+    chip.className = `weekly-day-chip ${cls}`;
+    chip.innerHTML = `<span>${abbr}</span><span class="chip-status"></span>`;
+    chip.title = `${abbr} ${dateStr}: ${hours.toFixed(1)}h / ${minHours}h`;
+    chips.push(chip);
+  });
+
+  if (chips.length === 0) {
+    wrapper.classList.add('hidden');
+    return;
+  }
+
+  container.innerHTML = '';
+  chips.forEach(c => container.appendChild(c));
+
+  // Show the wrapper
+  wrapper.classList.remove('hidden');
+}
+
 // ---- Theme ----
 function applyTheme(themeId) {
   if (!THEMES.find(t => t.id === themeId)) return;
@@ -286,6 +388,7 @@ async function saveSettings() {
   await invoke('save_settings', { settings });
   showToast('Settings saved ✓');
   checkHoursWarning();
+  renderWeeklyCompletion();
 }
 
 function syncProjectModeFromSettings() {
@@ -301,6 +404,7 @@ function switchView(viewId) {
   document.getElementById(`view-${viewId}`).classList.add('active');
   document.querySelector(`[data-view="${viewId}"]`).classList.add('active');
   if (viewId === 'settings') renderThemeGrid();
+  if (viewId === 'timesheet') renderWeeklyCompletion();
 }
 
 // ---- Project Mode ----
@@ -619,9 +723,9 @@ function escHtml(str) {
 
 function onDataChangeDebounced() {
   clearTimeout(dataChangeTimer);
-  dataChangeTimer = setTimeout(() => { updateTotals(); checkHoursWarning(); }, 150);
+  dataChangeTimer = setTimeout(() => { updateTotals(); checkHoursWarning(); renderWeeklyCompletion(); }, 150);
 }
-function onDataChange() { updateTotals(); checkHoursWarning(); }
+function onDataChange() { updateTotals(); checkHoursWarning(); renderWeeklyCompletion(); }
 
 function stepHours(timerId, dir) {
   const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');

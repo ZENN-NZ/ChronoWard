@@ -838,6 +838,10 @@ tr:hover .row-menu-btn,
 
 /* =========== TABLE FOOTER =========== */
 .table-footer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   padding: 12px 24px;
   border-top: 1px solid var(--border);
   background: var(--bg-2);
@@ -1110,3 +1114,69 @@ tr:hover .row-menu-btn,
 .theme-light .sidebar { background: #fff; border-color: #d8dae8; }
 .theme-light .main-content { background: #f5f6fa; }
 .theme-light .btn-primary { color: #fff; }
+
+/* =========== WEEKLY COMPLETION BANNER =========== */
+.weekly-completion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  flex-shrink: 0;
+}
+
+.weekly-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.weekly-days {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.weekly-day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--text-2);
+  transition: all var(--transition);
+}
+
+.weekly-day-chip.completed {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(68, 217, 128, 0.08);
+}
+
+.weekly-day-chip.incomplete {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(248, 109, 109, 0.1);
+}
+
+.weekly-day-chip .chip-status {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.weekly-day-chip.completed .chip-status::after {
+  content: '✓';
+}
+
+.weekly-day-chip.incomplete .chip-status::after {
+  content: '✗';
+}
