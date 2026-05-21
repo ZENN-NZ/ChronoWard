@@ -281,7 +281,17 @@ function renderWeeklyCompletion() {
   const chips = [];
 
   visibleDates.forEach(dateStr => {
-    const hours = getDayHours(dateStr);
+    // For today, read from the DOM directly so chips update as hours are typed.
+    // For past dates, sheets is already saved and accurate.
+    let hours;
+    if (dateStr === today) {
+      hours = 0;
+      document.querySelectorAll('#timesheetBody tr').forEach(tr => {
+        hours += parseFloat(tr.querySelector('.hours-input')?.value) || 0;
+      });
+    } else {
+      hours = getDayHours(dateStr);
+    }
     const isComplete = hours >= minHours;
 
     // Only show today if we're past warning time
