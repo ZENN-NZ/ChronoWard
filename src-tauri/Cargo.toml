@@ -18,12 +18,12 @@ path = "src/main.rs"
 
 [dependencies]
 # ── Tauri core ────────────────────────────────────────────────────────────────
-tauri = { version = "2", features = [
+tauri = { version = "2.11", features = [
     "tray-icon",
     "image-png",
 ] }
-tauri-plugin-dialog = "2"
-tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2.7"
+tauri-plugin-autostart = "2.5"
 
 # ── Serialisation ─────────────────────────────────────────────────────────────
 serde       = { version = "1", features = ["derive"] }
