@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-05-21
+
+### Added
+- Weekly completion banner in the table footer — shows Mon-Fri completion chips (green check / red X) next to the hour stats. Uses settings.warningTime as the gate for today's chip.
+
+### Fixed
+- Weekly completion chips now read today's hours live from the DOM instead of the saved sheets object, so they update in real time as hours are entered
+
+
 ## [1.1.3] - 2026-04-22
 ### Fixed
 - Warning timer issue - App would not pop up automatically when minimised, if hours were less than 7.5
