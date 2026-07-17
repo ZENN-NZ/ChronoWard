@@ -259,32 +259,19 @@ function renderWeeklyCompletion() {
   const wrapper   = document.getElementById('weeklyCompletion');
   if (!container || !wrapper) return;
 
-  const today     = getTodayString();
-  const now       = new Date();
-  const [wh, wm]  = (settings.warningTime || '16:30').split(':').map(Number);
-  const warningMins = wh * 60 + wm;
-  const currentMins = now.getHours() * 60 + now.getMinutes();
   const minHours  = settings.minHoursWarning || 7.5;
 
-  // Get all weekday dates for this week (Mon-Fri)
-  const weekdayDates = getWeekdayDates(today);
+  // Get all weekday dates for the week containing currentDate (Mon-Fri)
+  const weekdayDates = getWeekdayDates(currentDate);
 
-  // Filter: only show days that are today or in the past
-  const visibleDates = weekdayDates.filter(d => d <= today);
-
-  if (visibleDates.length === 0) {
-    wrapper.classList.add('hidden');
-    return;
-  }
-
-  // Build chips for visible dates
+  // Build chips for all 5 weekday dates
   const chips = [];
 
-  visibleDates.forEach(dateStr => {
-    // For today, read from the DOM directly so chips update as hours are typed.
-    // For past dates, sheets is already saved and accurate.
+  weekdayDates.forEach(dateStr => {
+    // For the currently active date, read from the DOM directly so chips update as hours are typed.
+    // For other dates in the week, read from sheets.
     let hours;
-    if (dateStr === today) {
+    if (dateStr === currentDate) {
       hours = 0;
       document.querySelectorAll('#timesheetBody tr').forEach(tr => {
         hours += parseFloat(tr.querySelector('.hours-input')?.value) || 0;
@@ -294,23 +281,24 @@ function renderWeeklyCompletion() {
     }
     const isComplete = hours >= minHours;
 
-    // Only show today if we're past warning time
-    const isToday = dateStr === today;
-    if (isToday && currentMins < warningMins) return;
-
     const abbr = dayAbbr(dateStr);
-    const cls = isComplete ? 'completed' : 'incomplete';
+    // Only turn green (completed class) if complete/filled out.
+    // Otherwise keep it neutral (no completed or incomplete class).
+    const cls = isComplete ? 'completed' : '';
     const chip = document.createElement('span');
-    chip.className = `weekly-day-chip ${cls}`;
+    chip.className = `weekly-day-chip ${cls}`.trim();
     chip.innerHTML = `<span>${abbr}</span><span class="chip-status"></span>`;
     chip.title = `${abbr} ${dateStr}: ${hours.toFixed(1)}h / ${minHours}h`;
+
+    // Add active styling or visual cue if this chip represents the currently active/selected date
+    if (dateStr === currentDate) {
+      chip.style.borderColor = 'var(--accent)';
+      chip.style.boxShadow = '0 0 6px var(--accent-glow)';
+      chip.style.fontWeight = 'bold';
+    }
+
     chips.push(chip);
   });
-
-  if (chips.length === 0) {
-    wrapper.classList.add('hidden');
-    return;
-  }
 
   container.innerHTML = '';
   chips.forEach(c => container.appendChild(c));
