@@ -1,4 +1,12 @@
 # Changelog
+## [1.3.2] - 2026-05-21
+
+### Updated
+Weekly completion banner
+- Design more inline with overall app theme
+- Logic updated: Now linked to the week that is selected
+
+Security update
 
 ## [1.2.0] - 2026-05-21
 
