@@ -81,7 +81,7 @@ async function init() {
   let activeTheme = settings.theme || 'midnight';
   if (settings.autoRotateTheme !== false) {
     const elapsedDays = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24));
-    const themeIndex = Math.floor(elapsedDays / 14) % THEMES.length;
+    const themeIndex = Math.floor(elapsedDays / 7) % THEMES.length;
     activeTheme = THEMES[themeIndex].id;
   }
 

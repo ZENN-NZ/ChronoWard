@@ -61,7 +61,7 @@ pub fn run() {
                 .with_handler(|app, shortcut, event| {
                     use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
                     if event.state() == ShortcutState::Pressed {
-                        if shortcut.matches(Modifiers::ALT, Code::Space) {
+                        if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space) {
                             commands::window::toggle_hud(app);
                         }
                     }
@@ -90,8 +90,8 @@ pub fn run() {
         ])
         .setup(|app| {
             use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
-            let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
-            let _ = app.global_shortcut().register(alt_space);
+            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+            let _ = app.global_shortcut().register(shortcut);
 
             // Set up tray — store the handle so it isn't dropped and disappears
             match tray::setup(app.handle()) {
