@@ -1,6 +1,6 @@
 {
   "productName": "ChronoWard",
-  "version": "1.3.2",
+  "version": "1.3.4",
   "identifier": "com.chronoward.desktop",
 
   "build": {
@@ -40,6 +40,7 @@
         "visible": false,
         "decorations": false,
         "transparent": true,
+        "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "url": "overlay.html"

@@ -1,6 +1,6 @@
 [package]
 name = "chronoward-lib"
-version = "1.3.3"
+version = "1.3.4"
 edition = "2021"
 description = "ChronoWard — Protect your time, meet your goals"
 authors = ["Jeremiah Benjamin"]

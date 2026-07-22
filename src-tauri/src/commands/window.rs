@@ -1,4 +1,4 @@
-use tauri::{Manager, WebviewWindow};
+use tauri::{Emitter, Manager, WebviewWindow};
 use tracing::{debug, warn};
 
 use crate::state::AppState;
@@ -8,8 +8,16 @@ pub fn set_warning_active(active: bool, app: tauri::AppHandle) -> Result<(), Str
     let state = app.state::<AppState>();
     let mut flag = state.warning_active.lock().unwrap_or_else(|e| e.into_inner());
     *flag = active;
+    let _ = app.emit("warning-state-changed", active);
     debug!("set_warning_active: {active}");
     Ok(())
+}
+
+#[tauri::command]
+pub fn is_warning_active(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    let flag = state.warning_active.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(*flag)
 }
 
 #[tauri::command]
@@ -56,21 +64,47 @@ pub fn show_overlay_cmd(app: tauri::AppHandle) {
 
 pub fn show_overlay(app: &tauri::AppHandle) {
     if let Some(overlay) = app.get_webview_window("overlay") {
-        // Position top-right of primary monitor, 12px margin
+        let position = {
+            let state = app.state::<AppState>();
+            let cache = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+            cache
+                .as_ref()
+                .map(|s| s.overlay_position.clone())
+                .unwrap_or_else(|| "top-right".to_string())
+        };
+
         if let Ok(Some(monitor)) = overlay.primary_monitor() {
             let size = monitor.size();
             let scale = monitor.scale_factor();
             let win_size = 64.0;
             let margin = 12.0;
-            let x = (size.width as f64 / scale) - win_size - margin;
-            let y = margin;
+            let taskbar_margin = 48.0;
+
+            let monitor_w = size.width as f64 / scale;
+            let monitor_h = size.height as f64 / scale;
+
+            let (x, y) = match position.as_str() {
+                "top-left" => (margin, margin),
+                "center-left" => (margin, (monitor_h - win_size) / 2.0),
+                "bottom-left" => (margin, monitor_h - win_size - margin - taskbar_margin),
+                "center-right" => (monitor_w - win_size - margin, (monitor_h - win_size) / 2.0),
+                "bottom-right" => (
+                    monitor_w - win_size - margin,
+                    monitor_h - win_size - margin - taskbar_margin,
+                ),
+                _ => (monitor_w - win_size - margin, margin),
+            };
+
             let _ = overlay.set_position(tauri::PhysicalPosition::new(
                 (x * scale) as i32,
                 (y * scale) as i32,
             ));
         }
+        let _ = overlay.set_shadow(false);
         let _ = overlay.show();
         let _ = overlay.set_always_on_top(true);
+        let _ = app.emit("overlay-position-changed", position);
+        let _ = app.emit("overlay-shown", ());
     } else {
         warn!("Overlay window not found");
     }

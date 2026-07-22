@@ -122,9 +122,6 @@ async fn tick(
                 };
                 if warning_active {
                     if let Some(window) = app.get_webview_window("main") {
-                        if let Some(overlay) = app.get_webview_window("overlay") {
-                            let _ = overlay.hide();
-                        }
                         let _ = window.show();
                         let _ = window.unminimize();
                         let _ = window.set_focus();

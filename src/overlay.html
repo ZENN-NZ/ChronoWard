@@ -5,39 +5,173 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body {
-      width:64px; height:64px;
-      background:transparent;
-      overflow:hidden;
+      width: 64px;
+      height: 64px;
+      background: transparent !important;
+      background-color: transparent !important;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
     }
+    body {
+      display: flex;
+      justify-content: flex-end;
+      align-items: flex-start;
+      width: 100%;
+      height: 100%;
+      background: transparent !important;
+    }
+
+    /* Position alignment modes */
+    body[data-position="top-right"]    { justify-content: flex-end; align-items: flex-start; }
+    body[data-position="center-right"] { justify-content: flex-end; align-items: center; }
+    body[data-position="bottom-right"] { justify-content: flex-end; align-items: flex-end; }
+    body[data-position="top-left"]     { justify-content: flex-start; align-items: flex-start; }
+    body[data-position="center-left"]  { justify-content: flex-start; align-items: center; }
+    body[data-position="bottom-left"]  { justify-content: flex-start; align-items: flex-end; }
+
     #btn {
-      width:64px; height:64px;
-      display:flex; align-items:center; justify-content:center;
-      cursor:pointer;
-      border:none; background:none;
-      border-radius:14px;
-      transition:transform .15s ease, opacity .15s ease;
-      opacity:0.92;
+      width: 64px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border: none !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      outline: none !important;
+      box-shadow: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      border-radius: 14px;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  transform 0.15s ease,
+                  opacity 0.15s ease;
+      opacity: 0.95;
     }
-    #btn:hover  { transform:scale(1.08); opacity:1; }
-    #btn:active { transform:scale(0.94); }
+    #btn:hover  { transform: scale(1.08); opacity: 1; }
+    #btn:active { transform: scale(0.94); }
     img {
-      width:52px; height:52px;
-      object-fit:contain;
-      border-radius:10px;
-      pointer-events:none;
-      /* subtle drop shadow so it reads against any desktop background */
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      border-radius: 10px;
+      pointer-events: none;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  filter 0.3s ease;
       filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+    }
+
+    /* Compact mode: smaller icon docked in configured corner/side */
+    body.compact #btn {
+      width: 36px;
+      height: 36px;
+    }
+    body.compact img {
+      width: 30px;
+      height: 30px;
+    }
+
+    /* Expanding back to original full size when hovered */
+    body.compact #btn:hover {
+      width: 64px !important;
+      height: 64px !important;
+      transform: scale(1) !important;
+      opacity: 1;
+    }
+    body.compact #btn:hover img {
+      width: 52px !important;
+      height: 52px !important;
     }
   </style>
 </head>
-<body>
+<body data-position="top-right">
   <button id="btn">
     <img src="icon.png" alt="ChronoWard" draggable="false" />
   </button>
   <script>
     const { invoke } = window.__TAURI__.core;
-    document.getElementById('btn').addEventListener('click', () => {
+    const { listen } = window.__TAURI__.event;
+
+    let warningActive = false;
+    let shrinkTimer = null;
+
+    const SHRINK_DELAY_MS = 5000;
+
+    function updatePosition(pos) {
+      if (typeof pos === 'string' && pos.length > 0) {
+        document.body.dataset.position = pos;
+      }
+    }
+
+    function resetShrinkTimer() {
+      if (shrinkTimer) clearTimeout(shrinkTimer);
+      if (!warningActive) {
+        shrinkTimer = setTimeout(() => {
+          if (!warningActive) {
+            document.body.classList.add('compact');
+          }
+        }, SHRINK_DELAY_MS);
+      }
+    }
+
+    function updateWarningState(active) {
+      warningActive = active;
+      if (warningActive) {
+        if (shrinkTimer) clearTimeout(shrinkTimer);
+        document.body.classList.remove('compact');
+      } else {
+        resetShrinkTimer();
+      }
+    }
+
+    const btn = document.getElementById('btn');
+    btn.addEventListener('click', () => {
       invoke('show_window').catch(console.error);
+    });
+
+    btn.addEventListener('mouseenter', () => {
+      if (shrinkTimer) clearTimeout(shrinkTimer);
+      document.body.classList.remove('compact');
+    });
+
+    btn.addEventListener('mouseleave', () => {
+      if (!warningActive) {
+        resetShrinkTimer();
+      }
+    });
+
+    // Listen for Tauri IPC events
+    listen('overlay-shown', () => {
+      invoke('is_warning_active').then(active => {
+        updateWarningState(active);
+      }).catch(() => {
+        if (!warningActive) resetShrinkTimer();
+      });
+    });
+
+    listen('warning-state-changed', (event) => {
+      const active = typeof event.payload === 'object' && event.payload !== null 
+        ? !!event.payload.active 
+        : !!event.payload;
+      updateWarningState(active);
+    });
+
+    listen('overlay-position-changed', (event) => {
+      const pos = typeof event.payload === 'string' 
+        ? event.payload 
+        : (event.payload && event.payload.position);
+      updatePosition(pos);
+    });
+
+    // Initial load check
+    invoke('is_warning_active').then(active => {
+      updateWarningState(active);
+    }).catch(() => {
+      resetShrinkTimer();
     });
   </script>
 </body>

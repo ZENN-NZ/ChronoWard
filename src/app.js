@@ -350,10 +350,11 @@ function renderThemeGrid() {
 
 // ---- Settings ----
 function applySettingsToUI() {
-  document.getElementById('settingIncrement').value   = settings.hourIncrement   || 0.5;
-  document.getElementById('settingMinHours').value    = settings.minHoursWarning || 7.5;
-  document.getElementById('settingWarningTime').value = settings.warningTime     || '16:30';
-  document.getElementById('settingAutoStart').checked = settings.autoStart ?? true;
+  document.getElementById('settingIncrement').value       = settings.hourIncrement   || 0.5;
+  document.getElementById('settingMinHours').value        = settings.minHoursWarning || 7.5;
+  document.getElementById('settingWarningTime').value     = settings.warningTime     || '16:30';
+  document.getElementById('settingAutoStart').checked     = settings.autoStart ?? true;
+  document.getElementById('settingOverlayPosition').value = settings.overlayPosition || 'top-right';
   const ft = settings.focusTimes || ['11:00', '14:00', '16:00'];
   document.getElementById('focusTime1').value = ft[0] || '11:00';
   document.getElementById('focusTime2').value = ft[1] || '14:00';
@@ -367,6 +368,7 @@ async function saveSettings() {
   settings.hourIncrement   = parseFloat(document.getElementById('settingIncrement').value)   || 0.5;
   settings.minHoursWarning = parseFloat(document.getElementById('settingMinHours').value)    || 7.5;
   settings.warningTime     = document.getElementById('settingWarningTime').value             || '16:30';
+  settings.overlayPosition = document.getElementById('settingOverlayPosition').value         || 'top-right';
   settings.focusTimes      = [
     document.getElementById('focusTime1').value || '11:00',
     document.getElementById('focusTime2').value || '14:00',

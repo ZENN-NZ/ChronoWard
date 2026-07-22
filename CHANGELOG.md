@@ -1,4 +1,24 @@
 # Changelog
+## [1.3.4] - 2026-07-22
+
+### Added
+- **Overlay Positioning:** Configurable desktop overlay positioning option (`Top Right`, `Center Right`, `Bottom Right`, `Top Left`, `Center Left`, `Bottom Left`) in Appearance settings with taskbar height clearance
+- **Overlay Auto-Shrink:** Auto-shrinking overlay icon behavior after 5 seconds of inactivity with smooth hover expansion to original size
+
+### Fixed
+- **Overlay Glass Panel:** Disabled native Windows DWM window shadow on transparent overlay window
+- **Warning Lifecycle:** Fixed overlay sizing state sync so overlay resumes auto-shrinking after required hours are logged and warning banner is dismissed
+
+### Changed
+- `src-tauri/tauri.conf.json` — disabled window shadow (`"shadow": false`) and updated app version to `1.3.4`
+- `src-tauri/src/commands/window.rs` — implemented multi-position monitor coordinates and taskbar clearance margin
+- `src-tauri/src/state.rs` — added `overlay_position` field to `Settings` struct
+- `src/index.html` — added Overlay Position dropdown in Appearance section below Theme grid
+- `src/app.js` — mapped `#settingOverlayPosition` in UI load and save handlers
+- `src/overlay.html` — implemented transparent styling, auto-shrink, hover expansion, and position alignment
+
+---
+
 ## [1.3.3] - 2026-07-22
 
 ### Fixed

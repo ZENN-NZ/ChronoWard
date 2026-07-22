@@ -50,6 +50,13 @@ pub struct Settings {
 
     #[serde(default = "default_auto_start")]
     pub auto_start: bool,
+
+    #[serde(default = "default_overlay_position")]
+    pub overlay_position: String,
+}
+
+fn default_overlay_position() -> String {
+    "top-right".to_string()
 }
 
 fn default_auto_start() -> bool {
@@ -87,6 +94,7 @@ impl Default for Settings {
             warning_time: default_warning_time(),
             min_hours_warning: default_min_hours_warning(),
             auto_start: default_auto_start(),
+            overlay_position: default_overlay_position(),
         }
     }
 }
