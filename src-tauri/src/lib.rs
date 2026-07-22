@@ -56,6 +56,18 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![]),
         ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+                    if event.state() == ShortcutState::Pressed {
+                        if shortcut.matches(Modifiers::ALT, Code::Space) {
+                            commands::window::toggle_hud(app);
+                        }
+                    }
+                })
+                .build(),
+        )
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::settings::load_settings,
@@ -73,8 +85,14 @@ pub fn run() {
             commands::window::is_warning_active,
             commands::window::show_window,
             commands::window::minimize_to_tray,
+            commands::window::toggle_hud_cmd,
+            commands::window::hide_hud_cmd,
         ])
         .setup(|app| {
+            use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+            let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+            let _ = app.global_shortcut().register(alt_space);
+
             // Set up tray — store the handle so it isn't dropped and disappears
             match tray::setup(app.handle()) {
                 Ok(tray_icon) => {

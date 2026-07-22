@@ -24,6 +24,7 @@ tauri = { version = "2.11", features = [
 ] }
 tauri-plugin-dialog = "2.7"
 tauri-plugin-autostart = "2.5"
+tauri-plugin-global-shortcut = "2"
 
 # ── Serialisation ─────────────────────────────────────────────────────────────
 serde       = { version = "1", features = ["derive"] }

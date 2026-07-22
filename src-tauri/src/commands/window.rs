@@ -110,6 +110,34 @@ pub fn show_overlay(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+pub fn toggle_hud_cmd(app: tauri::AppHandle) {
+    toggle_hud(&app);
+}
+
+#[tauri::command]
+pub fn hide_hud_cmd(app: tauri::AppHandle) {
+    if let Some(hud) = app.get_webview_window("hud") {
+        let _ = hud.hide();
+    }
+}
+
+pub fn toggle_hud(app: &tauri::AppHandle) {
+    if let Some(hud) = app.get_webview_window("hud") {
+        let is_visible = hud.is_visible().unwrap_or(false);
+        if is_visible {
+            let _ = hud.hide();
+        } else {
+            let _ = hud.center();
+            let _ = hud.show();
+            let _ = hud.set_focus();
+            let _ = app.emit("hud-opened", ());
+        }
+    } else {
+        warn!("HUD window not found");
+    }
+}
+
 fn get_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
     app.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())

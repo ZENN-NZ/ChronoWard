@@ -18,6 +18,7 @@ let projectMode          = false;
 let detailedMode           = false;
 let activeDescTimerId    = null;
 let isEmergencyMode      = false;    // NEW: set true if keychain unavailable
+let isCleanSlateMode     = false;    // Clean Slate Isolation Mode state
 
 let rowCounter      = 0;
 let dataChangeTimer = null;
@@ -72,7 +73,19 @@ async function init() {
   currentDate = getTodayString();
   document.getElementById('selectedDate').value = currentDate;
 
-  applyTheme(settings.theme || 'midnight');
+  const installedAt = settings.installedAt || Date.now();
+  if (!settings.installedAt) {
+    settings.installedAt = installedAt;
+  }
+
+  let activeTheme = settings.theme || 'midnight';
+  if (settings.autoRotateTheme !== false) {
+    const elapsedDays = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24));
+    const themeIndex = Math.floor(elapsedDays / 14) % THEMES.length;
+    activeTheme = THEMES[themeIndex].id;
+  }
+
+  applyTheme(activeTheme);
   renderThemeGrid();
   applySettingsToUI();
 
@@ -158,6 +171,11 @@ function setupStaticListeners() {
   document.getElementById('addRowBtn').addEventListener('click', () => addRow());
   document.getElementById('exportBtn').addEventListener('click', () => exportCSV());
   document.getElementById('deleteSelectedBtn').addEventListener('click', () => deleteCheckedRows());
+  
+  const cleanSlateBtn = document.getElementById('cleanSlateBtn');
+  if (cleanSlateBtn) cleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
+  const exitCleanSlateBtn = document.getElementById('exitCleanSlateBtn');
+  if (exitCleanSlateBtn) exitCleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
 
   // Project / Detailed mode toggles
   document.getElementById('projectModeToggle').addEventListener('change', () => toggleProjectMode());
@@ -200,6 +218,19 @@ async function setupEventListeners() {
   // Main process → renderer: emergency mode activated
   await listen('emergency-mode', (event) => {
     enterEmergencyMode(event.payload);
+  });
+
+  // HUD → renderer: quick log entry added via HUD
+  await listen('hud-entry-added', async (event) => {
+    const sheetsResult = await invoke('load_sheets');
+    if (sheetsResult && sheetsResult.data) {
+      sheets = sheetsResult.data;
+      if (currentDate === getTodayString()) {
+        loadSheetForDate(currentDate);
+        renderWeeklyCompletion();
+      }
+    }
+    showToast('⚡ Quick log entry added');
   });
 }
 
@@ -355,6 +386,8 @@ function applySettingsToUI() {
   document.getElementById('settingWarningTime').value     = settings.warningTime     || '16:30';
   document.getElementById('settingAutoStart').checked     = settings.autoStart ?? true;
   document.getElementById('settingOverlayPosition').value = settings.overlayPosition || 'top-right';
+  const autoRotateEl = document.getElementById('settingAutoRotateTheme');
+  if (autoRotateEl) autoRotateEl.checked = settings.autoRotateTheme !== false;
   const ft = settings.focusTimes || ['11:00', '14:00', '16:00'];
   document.getElementById('focusTime1').value = ft[0] || '11:00';
   document.getElementById('focusTime2').value = ft[1] || '14:00';
@@ -369,6 +402,8 @@ async function saveSettings() {
   settings.minHoursWarning = parseFloat(document.getElementById('settingMinHours').value)    || 7.5;
   settings.warningTime     = document.getElementById('settingWarningTime').value             || '16:30';
   settings.overlayPosition = document.getElementById('settingOverlayPosition').value         || 'top-right';
+  const autoRotateEl = document.getElementById('settingAutoRotateTheme');
+  if (autoRotateEl) settings.autoRotateTheme = autoRotateEl.checked;
   settings.focusTimes      = [
     document.getElementById('focusTime1').value || '11:00',
     document.getElementById('focusTime2').value || '14:00',
@@ -914,9 +949,70 @@ function updateTimerDisplay(timerId) {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = secs % 60;
+  const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   const display = document.getElementById(`timer-display-${timerId}`);
   if (display) {
-    display.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    display.textContent = timeStr;
+  }
+  updateCleanSlateView(timerId, secs, timeStr);
+}
+
+function toggleCleanSlateMode() {
+  isCleanSlateMode = !isCleanSlateMode;
+  const tableContainer = document.querySelector('.table-container');
+  const tableFooter = document.querySelector('.table-footer');
+  const weeklyCompletion = document.querySelector('.weekly-completion');
+  const cleanSlateContainer = document.getElementById('cleanSlateContainer');
+  const cleanSlateBtn = document.getElementById('cleanSlateBtn');
+
+  if (isCleanSlateMode) {
+    tableContainer?.classList.add('hidden');
+    tableFooter?.classList.add('hidden');
+    weeklyCompletion?.classList.add('hidden');
+    cleanSlateContainer?.classList.remove('hidden');
+    cleanSlateBtn?.classList.add('active');
+    
+    // Find active running timer or first row
+    const runningTimerId = Object.keys(timers).find(id => timers[id]?.running);
+    if (runningTimerId) {
+      updateTimerDisplay(runningTimerId);
+    }
+  } else {
+    tableContainer?.classList.remove('hidden');
+    tableFooter?.classList.remove('hidden');
+    weeklyCompletion?.classList.remove('hidden');
+    cleanSlateContainer?.classList.add('hidden');
+    cleanSlateBtn?.classList.remove('active');
+  }
+}
+
+function updateCleanSlateView(timerId, secs, timeStr) {
+  const cleanSlateTimerText = document.getElementById('cleanSlateTimerText');
+  const cleanSlateProjectName = document.getElementById('cleanSlateProjectName');
+  const cleanSlateTaskName = document.getElementById('cleanSlateTaskName');
+  const spatialRingProgress = document.getElementById('spatialRingProgress');
+
+  if (cleanSlateTimerText) cleanSlateTimerText.textContent = timeStr;
+
+  const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
+  if (tr) {
+    const taskText = tr.querySelector('.task-input')?.value || 'Focus Session';
+    if (cleanSlateTaskName) cleanSlateTaskName.textContent = taskText;
+    
+    // Extract project if bracketed e.g. [Project] Task
+    const match = taskText.match(/^\[(.*?)\]\s*(.*)$/);
+    if (match && cleanSlateProjectName) {
+      cleanSlateProjectName.textContent = match[1];
+      if (cleanSlateTaskName) cleanSlateTaskName.textContent = match[2] || taskText;
+    }
+  }
+
+  // Update SVG ring stroke-dashoffset (326.72 circumference for r=52)
+  if (spatialRingProgress) {
+    const period = 1800; // 30 minute cycle ring
+    const progress = (secs % period) / period;
+    const offset = 326.72 * (1 - progress);
+    spatialRingProgress.style.strokeDashoffset = offset;
   }
 }
 
@@ -1175,7 +1271,7 @@ function showBanner(current, required) {
   const banner  = document.getElementById('hoursWarningBanner');
   const reqText = banner.querySelector('.banner-text');
   if (reqText) {
-    reqText.innerHTML = `You need to log at least <strong>${required}hrs</strong> before end of day — currently at <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h`;
+    reqText.innerHTML = `Daily tracking status: <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h logged towards <strong id="bannerTargetHours">${required}</strong>h target`;
   }
   banner.classList.remove('hidden');
   invoke('set_warning_active', { active: true }).catch(() => {});

@@ -1,0 +1,16 @@
+#!/bin/sh
+# ChronoWard Git Post-Checkout Hook
+# Automatically attributes time to active Git branch names.
+
+previous_head=$1
+new_head=$2
+is_branch_checkout=$3
+
+if [ "$is_branch_checkout" -eq 1 ]; then
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    echo "ChronoWard: Branch switch detected -> '$current_branch'"
+    # Optional: Log context switch to ChronoWard CLI if installed
+    if command -v chronoward >/dev/null 2>&1; then
+        chronoward log --project "$current_branch" --task "Switched to branch $current_branch" --hours 0.0 >/dev/null 2>&1 &
+    fi
+fi

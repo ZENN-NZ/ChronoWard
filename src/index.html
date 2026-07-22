@@ -18,8 +18,8 @@
 
   <!-- Hours Warning Banner -->
   <div id="hoursWarningBanner" class="hours-banner hidden">
-    <span class="banner-icon">⚠️</span>
-    <span class="banner-text">You need to log at least <strong>7.5 hours</strong> before end of day — currently at <strong id="bannerCurrentHours">0</strong>h</span>
+    <span class="banner-icon">ℹ️</span>
+    <span class="banner-text">Daily tracking status: <strong id="bannerCurrentHours">0</strong>h logged towards <strong id="bannerTargetHours">7.5</strong>h target</span>
   </div>
 
   <div class="app-container">
@@ -94,6 +94,10 @@
               </label>
             </div>
             
+            <button class="btn-secondary" id="cleanSlateBtn" title="Toggle Clean Slate Focus Isolation Mode">
+              <span>🧘 Clean Slate</span>
+            </button>
+            
             <button class="btn-primary" id="addRowBtn" title="Add Row (Ctrl+N)">
               <span>+ Add Row</span>
             </button>
@@ -105,6 +109,30 @@
             <button class="btn-icon-help" id="shortcutsBtn" title="Keyboard Shortcuts (?)">
               <span>❓</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Clean Slate Isolation View Container -->
+        <div id="cleanSlateContainer" class="clean-slate-container hidden">
+          <div class="clean-slate-card">
+            <div class="clean-slate-header">
+              <span class="clean-slate-tag">ACTIVE FOCUS ISOLATION</span>
+              <button class="btn-secondary" id="exitCleanSlateBtn" style="padding: 4px 10px; font-size: 12px;">Exit Isolation ✕</button>
+            </div>
+            <div class="clean-slate-body">
+              <div class="spatial-ring-wrap">
+                <svg class="spatial-ring" viewBox="0 0 120 120">
+                  <circle class="ring-bg" cx="60" cy="60" r="52" />
+                  <circle class="ring-progress" id="spatialRingProgress" cx="60" cy="60" r="52" />
+                </svg>
+                <div class="ring-timer-text" id="cleanSlateTimerText">00:00:00</div>
+              </div>
+              <div class="clean-slate-project" id="cleanSlateProjectName">General Focus</div>
+              <div class="clean-slate-task" id="cleanSlateTaskName">Working on current priorities</div>
+            </div>
+            <div class="clean-slate-footer">
+              <span style="font-size: 12px; color: var(--text-3);">Single-Task Isolation Layer • Zero Distraction</span>
+            </div>
           </div>
         </div>
 
@@ -226,6 +254,18 @@
                 <option value="center-left">Center Left</option>
                 <option value="bottom-left">Bottom Left</option>
               </select>
+            </div>
+            <div class="setting-row" style="margin-top: 16px;">
+              <div>
+                <label class="setting-label">Auto-Rotate Theme (Habituation Defense)</label>
+                <p class="settings-help">Shifts visual theme bi-weekly to defeat workspace blindness.</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingAutoRotateTheme" checked />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+              </label>
             </div>
           </div>
 
