@@ -101,7 +101,10 @@
             <button class="btn-secondary" id="exportBtn">
               <span>↑ Export</span>
             </button>
-          
+
+            <button class="btn-icon-help" id="shortcutsBtn" title="Keyboard Shortcuts (?)">
+              <span>❓</span>
+            </button>
           </div>
         </div>
 
@@ -317,6 +320,44 @@
         </div>
       </div>
       <textarea id="descModalTextarea" class="desc-textarea" placeholder="Add a detailed description…"></textarea>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div id="shortcutsModal" class="desc-modal-backdrop hidden">
+    <div class="shortcuts-modal">
+      <div class="shortcuts-modal-header">
+        <span class="shortcuts-modal-title">⌨️ Keyboard Shortcuts</span>
+        <button class="btn-secondary" id="shortcutsCloseBtn">✕</button>
+      </div>
+      <div class="shortcuts-modal-body">
+        <div class="shortcuts-group">
+          <div class="shortcuts-group-title">Timesheet Actions</div>
+          <div class="shortcut-row"><span class="shortcut-desc">Add new task row</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>N</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Export CSV</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>E</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Save sheet to disk</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>S</kbd></div></div>
+        </div>
+
+        <div class="shortcuts-group">
+          <div class="shortcuts-group-title">Mode Toggles</div>
+          <div class="shortcut-row"><span class="shortcut-desc">Toggle Detailed Mode (Ticket / Description)</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Toggle Project Mode (Timers)</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></div></div>
+        </div>
+
+        <div class="shortcuts-group">
+          <div class="shortcuts-group-title">Date Navigation</div>
+          <div class="shortcut-row"><span class="shortcut-desc">Previous day</span><div class="shortcut-keys"><kbd>Alt</kbd> + <kbd>←</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Next day</span><div class="shortcut-keys"><kbd>Alt</kbd> + <kbd>→</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Jump to Today</span><div class="shortcut-keys"><kbd>Alt</kbd> + <kbd>T</kbd></div></div>
+        </div>
+
+        <div class="shortcuts-group">
+          <div class="shortcuts-group-title">Views & General</div>
+          <div class="shortcut-row"><span class="shortcut-desc">Switch view (Sheet / Import / Settings)</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Open Keyboard Shortcuts Help</span><div class="shortcut-keys"><kbd>?</kbd></div></div>
+          <div class="shortcut-row"><span class="shortcut-desc">Close open modal / overlay</span><div class="shortcut-keys"><kbd>Esc</kbd></div></div>
+        </div>
+      </div>
     </div>
   </div>
 

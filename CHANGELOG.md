@@ -1,4 +1,18 @@
 # Changelog
+## [1.3.5] - 2026-07-22
+
+### Added
+- **Keyboard Shortcuts Modal:** Interactive shortcuts modal dialog (`#shortcutsModal`) accessible via top header `❓` help button or pressing `?` key
+- **Expanded Keyboard Navigation:** Comprehensive keybindings for Detailed Mode toggle (`Ctrl+Shift+D`), Project Mode toggle (`Ctrl+Shift+P`), CSV Export (`Ctrl+E`), Force Save (`Ctrl+S`), Date Navigation (`Alt+Left`/`Alt+Right`/`Alt+T`), and View switching (`Ctrl+1`/`2`/`3`)
+
+### Changed
+- `.gitignore` — added `.gemini/` directory to prevent workspace skill files from being committed to version control
+- `src/index.html` — added `❓` help button to view header and modal overlay structure
+- `src/styles.css` — added theme-adaptive modal styling, key row flex layouts, and custom `<kbd>` badges
+- `src/app.js` — expanded `setupKeyboardShortcuts()` handler, date navigation helpers, and modal toggle bindings
+
+---
+
 ## [1.3.4] - 2026-07-22
 
 ### Added

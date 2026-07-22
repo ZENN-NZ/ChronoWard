@@ -15,3 +15,6 @@ node_modules
 android
 ios
 *logo.png
+.gemini/
+.gemini
+

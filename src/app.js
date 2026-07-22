@@ -1188,20 +1188,152 @@ function hideBanner() {
   invoke('set_always_on_top', { value: false }).catch(() => {});
 }
 
-// ---- Keyboard shortcuts ----
+// ---- Keyboard shortcuts & Modal ----
+function toggleShortcutsModal(show) {
+  const modal = document.getElementById('shortcutsModal');
+  if (!modal) return;
+  const isHidden = modal.classList.contains('hidden');
+  const shouldShow = typeof show === 'boolean' ? show : isHidden;
+  modal.classList.toggle('hidden', !shouldShow);
+  if (shouldShow) {
+    const closeBtn = document.getElementById('shortcutsCloseBtn');
+    if (closeBtn) closeBtn.focus();
+  }
+}
+
+function shiftSelectedDate(days) {
+  saveCurrentSheet();
+  const d = new Date(currentDate + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  currentDate = formatDate(d);
+  document.getElementById('selectedDate').value = currentDate;
+  loadSheetForDate(currentDate);
+  renderWeeklyCompletion();
+}
+
+function jumpToToday() {
+  saveCurrentSheet();
+  currentDate = getTodayString();
+  document.getElementById('selectedDate').value = currentDate;
+  loadSheetForDate(currentDate);
+  renderWeeklyCompletion();
+}
+
 function setupKeyboardShortcuts() {
+  const shortcutsBtn = document.getElementById('shortcutsBtn');
+  if (shortcutsBtn) {
+    shortcutsBtn.addEventListener('click', () => toggleShortcutsModal(true));
+  }
+  const shortcutsCloseBtn = document.getElementById('shortcutsCloseBtn');
+  if (shortcutsCloseBtn) {
+    shortcutsCloseBtn.addEventListener('click', () => toggleShortcutsModal(false));
+  }
+  const shortcutsModal = document.getElementById('shortcutsModal');
+  if (shortcutsModal) {
+    shortcutsModal.addEventListener('click', (e) => {
+      if (e.target === shortcutsModal) toggleShortcutsModal(false);
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
-      e.preventDefault();
-      addRow();
-    }
-    
-    if (e.key === 'Escape') {
-      const modal = document.getElementById('descModal');
-      if (!modal.classList.contains('hidden')) {
+    const activeEl = document.activeElement;
+    const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+    const isCtrl = e.ctrlKey || e.metaKey;
+
+    // Escape -> Close Modals (takes priority before input check)
+    if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+      const shortcutsModal = document.getElementById('shortcutsModal');
+      if (shortcutsModal && !shortcutsModal.classList.contains('hidden')) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleShortcutsModal(false);
+        return;
+      }
+      const descModal = document.getElementById('descModal');
+      if (descModal && !descModal.classList.contains('hidden')) {
+        e.preventDefault();
+        e.stopPropagation();
         saveDescModal();
-        modal.classList.add('hidden');
+        descModal.classList.add('hidden');
         activeDescTimerId = null;
+        return;
+      }
+    }
+
+    // ? -> Open Shortcuts Modal (when not typing in input)
+    if (e.key === '?' && !isInput && !isCtrl && !e.altKey) {
+      e.preventDefault();
+      toggleShortcutsModal();
+      return;
+    }
+
+    // Ctrl + 1 / 2 / 3 -> Switch Views
+    if (isCtrl && !e.shiftKey && ['1', '2', '3'].includes(e.key)) {
+      e.preventDefault();
+      const views = ['timesheet', 'import', 'settings'];
+      switchView(views[parseInt(e.key) - 1]);
+      return;
+    }
+
+    // Ctrl + N -> Add Row
+    if (isCtrl && !e.shiftKey && e.key.toLowerCase() === 'n') {
+      e.preventDefault();
+      if (document.getElementById('view-timesheet').classList.contains('active')) {
+        addRow();
+      }
+      return;
+    }
+
+    // Ctrl + E -> Export CSV
+    if (isCtrl && !e.shiftKey && e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      exportCSV();
+      return;
+    }
+
+    // Ctrl + S -> Force Save Sheet
+    if (isCtrl && !e.shiftKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveCurrentSheet();
+      showToast('Timesheet saved to disk');
+      return;
+    }
+
+    // Ctrl + Shift + D -> Toggle Detailed Mode
+    if (isCtrl && e.shiftKey && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      const toggle = document.getElementById('detailedModeToggle');
+      if (toggle) toggle.click();
+      return;
+    }
+
+    // Ctrl + Shift + P -> Toggle Project Mode
+    if (isCtrl && e.shiftKey && e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      const toggle = document.getElementById('projectModeToggle');
+      if (toggle) toggle.click();
+      return;
+    }
+
+    // Alt + Left / Right / T -> Date Navigation
+    if (e.altKey && !isCtrl) {
+      if (e.key === 'ArrowLeft' || e.key === 'Left' || e.code === 'ArrowLeft') {
+        e.preventDefault();
+        e.stopPropagation();
+        shiftSelectedDate(-1);
+        return;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'Right' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        shiftSelectedDate(1);
+        return;
+      }
+      if (e.key.toLowerCase() === 't' || e.code === 'KeyT') {
+        e.preventDefault();
+        e.stopPropagation();
+        jumpToToday();
+        return;
       }
     }
   });
