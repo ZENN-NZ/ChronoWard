@@ -1,4 +1,24 @@
 # Changelog
+## [1.3.3] - 2026-07-22
+
+### Fixed
+- **Critical:** Fixed scheduler focus time trigger deduplication to prevent multiple popups per window slot
+- **Critical:** Rate-limited `check-hours-warning` background IPC event to fire at most once per minute
+- Autostart setting deserialization on startup when `settings.json` is encrypted with OS keychain
+- CSV import `OT` boolean conversion bug where `"No"` evaluated as truthy in JavaScript
+- Replaced invalid `<icon>` tag with standard HTML5 `<img>` element for sidebar brand icon
+
+### Changed
+- `src-tauri/src/commands/settings.rs` — updated `atomic_write()` to use unique nanosecond timestamp temp filenames and cleanup on error for Windows file lock safety
+- Upgraded Mutex guards in command modules to use `unwrap_or_else` to prevent lock poisoning thread cascades
+- Bumped version to `1.3.3` in `package.json` and `Cargo.toml`
+
+### Security
+- Explicitly blocked mid-session unencrypted file writes if OS keychain becomes unreachable during save operations
+- Ran unit test suite (`cargo test`). 15/15 tests passing cleanly.
+
+---
+
 ## [1.3.2] - 2026-05-21
 
 ### Updated

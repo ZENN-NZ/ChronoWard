@@ -6,7 +6,7 @@ use crate::state::AppState;
 #[tauri::command]
 pub fn set_warning_active(active: bool, app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let mut flag = state.warning_active.lock().unwrap();
+    let mut flag = state.warning_active.lock().unwrap_or_else(|e| e.into_inner());
     *flag = active;
     debug!("set_warning_active: {active}");
     Ok(())

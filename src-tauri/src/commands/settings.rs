@@ -32,7 +32,7 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
 
     // If already cached, return from cache
     {
-        let cache = state.settings.lock().unwrap();
+        let cache = state.settings.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref s) = *cache {
             debug!("load_settings: returning cached settings");
             return Ok(s.clone());
@@ -63,7 +63,7 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
             match crypto::decrypt(raw.trim()) {
                 Ok(result) => {
                     if result.needs_reencrypt() {
-                        *state.has_legacy_plaintext.lock().unwrap() = true;
+                        *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
                     }
                     result.into_plaintext()
                 }
@@ -84,7 +84,7 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
     };
 
     // Populate cache
-    *state.settings.lock().unwrap() = Some(settings.clone());
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = Some(settings.clone());
     Ok(settings)
 }
 
@@ -109,8 +109,10 @@ pub async fn save_settings(
     let to_write = if state.keychain_available() {
         crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt settings: {e}"))?
     } else {
-        warn!("Keychain unavailable during save_settings — storing plaintext");
-        json
+        return Err(
+            "Keychain unavailable during save_settings — refusing to write unencrypted settings"
+                .to_string(),
+        );
     };
 
     atomic_write(&state.settings_path(), &to_write).await?;
@@ -119,7 +121,7 @@ pub async fn save_settings(
     let auto_start = settings.auto_start;
 
     // Update cache
-    *state.settings.lock().unwrap() = Some(settings);
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = Some(settings);
     info!("Settings saved");
 
     use tauri_plugin_autostart::ManagerExt;
@@ -137,15 +139,18 @@ pub async fn save_settings(
 /// This guarantees the target file is never in a half-written state.
 /// Exported for reuse by sheets.rs and timers.rs.
 pub async fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
-    let tmp_path = path.with_extension("json.tmp");
+    let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+    let tmp_path = path.with_extension(format!("json.tmp.{}", timestamp));
 
-    tokio::fs::write(&tmp_path, content)
-        .await
-        .map_err(|e| format!("Failed to write temp file {:?}: {e}", tmp_path))?;
+    if let Err(e) = tokio::fs::write(&tmp_path, content).await {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(format!("Failed to write temp file {:?}: {e}", tmp_path));
+    }
 
-    tokio::fs::rename(&tmp_path, path)
-        .await
-        .map_err(|e| format!("Failed to rename temp file to {:?}: {e}", path))?;
+    if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(format!("Failed to rename temp file to {:?}: {e}", path));
+    }
 
     Ok(())
 }

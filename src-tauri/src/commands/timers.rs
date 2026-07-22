@@ -74,8 +74,10 @@ pub async fn save_timers(timers: Value, state: State<'_, AppState>) -> Result<()
     let to_write = if state.keychain_available() {
         crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt timers: {e}"))?
     } else {
-        warn!("Keychain unavailable during save_timers — storing plaintext");
-        json
+        return Err(
+            "Keychain unavailable during save_timers — refusing to write unencrypted data"
+                .to_string(),
+        );
     };
 
     atomic_write(&state.timers_path(), &to_write).await?;

@@ -411,7 +411,7 @@ function toggleProjectMode() {
   document.getElementById('settingProjectMode').checked = projectMode;
   settings.projectMode = projectMode;
   applyProjectMode();
-  if (!isEmergencyMode) invoke('save_settings', { settings });
+  if (!isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
 }
 
 function applyProjectMode() {
@@ -427,7 +427,7 @@ function toggleDetailedMode() {
   document.getElementById('settingDetailedMode').checked = detailedMode;
   settings.detailedMode = detailedMode;
   applyDetailedMode();
-  if (!isEmergencyMode) invoke('save_settings', { settings });
+  if (!isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
 }
 
 function applyDetailedMode() {
@@ -1127,7 +1127,7 @@ function parseCSV(text) {
       const val = (cols[i] || '').trim().replace(/^"|"$/g, '');
       if      (h === 'task')                                               row.task        = val;
       else if (h === 'hours')                                              row.hours       = parseFloat(val) || 0;
-      else if (h === 'overtime' || h === 'ot')                             row.ot          = val;
+      else if (h === 'overtime' || h === 'ot')                             row.ot          = (val.toLowerCase() === 'yes' || val.toLowerCase() === 'true' || val === '1');
       else if (h === 'ticket #' || h === 'ticket number' || h === 'ticket') row.ticketNum  = val;
       else if (h === 'description' || h === 'desc')                        row.description = val;
     });

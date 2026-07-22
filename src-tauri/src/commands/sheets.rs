@@ -66,7 +66,7 @@ pub async fn load_sheets(state: State<'_, AppState>) -> Result<Value, String> {
         match crypto::decrypt(raw.trim()) {
             Ok(result) => {
                 if result.needs_reencrypt() {
-                    *state.has_legacy_plaintext.lock().unwrap() = true;
+                    *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
                 }
                 result.into_plaintext()
             }
@@ -82,7 +82,7 @@ pub async fn load_sheets(state: State<'_, AppState>) -> Result<Value, String> {
     } else {
         // Plaintext (legacy migration path)
         warn!("sheets.json is unencrypted — will encrypt on next save");
-        *state.has_legacy_plaintext.lock().unwrap() = true;
+        *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
         raw
     };
 
@@ -122,13 +122,10 @@ pub async fn save_sheets(sheets: Value, state: State<'_, AppState>) -> Result<()
     let to_write = if state.keychain_available() {
         crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt sheets: {e}"))?
     } else {
-        // Keychain became unavailable mid-session (very rare).
-        // We've already blocked writes in emergency mode above;
-        // this branch only fires if keychain went down after startup
-        // but emergency mode wasn't set (i.e. there was no encrypted data
-        // at startup). Store plaintext with a warning.
-        warn!("Keychain unavailable during save_sheets — storing plaintext");
-        json
+        return Err(
+            "Keychain unavailable during save_sheets — refusing to write unencrypted data"
+                .to_string(),
+        );
     };
 
     atomic_write(&state.sheets_path(), &to_write).await?;
