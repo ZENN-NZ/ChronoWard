@@ -26,18 +26,12 @@ ChronoWard is engineered as a **local-first, fully offline computational prosthe
 
 ## Executive & Enterprise Safety Features (v2.0.0 Updates)
 
-### 🛡️ 1. CLI Shell Hook Secret Redaction
-The developer shell integration hook (`scripts/chronoward-shell-hook.zsh`) includes automatic inline secret scrubbing:
-- **Token Masking**: Automatically detects and replaces `Authorization: Bearer <token>`, `--password <pass>`, `-p <pass>`, `--api-key <key>`, and `--token <tok>` with `[REDACTED]`.
-- **Command Duration Filtering**: Ignores rapid commands (`ls`, `cd`, `cat`) and only evaluates processes running longer than 3 seconds.
-- **Opt-In Installation**: Shell and Git hooks are provided strictly as opt-in developer utilities.
-
-### 🔒 2. Emergency Read-Only Mode & Lock-Poisoning Prevention
+### 🔒 1. Emergency Read-Only Mode & Lock-Poisoning Prevention
 - **Keychain Unavailability**: If the OS Keychain is unreachable on boot and encrypted files exist, ChronoWard automatically enters **Emergency Read-Only Mode**.
 - **Mid-Session Guardrail**: If Keychain connectivity fails during active usage, `save_sheets` blocks raw plaintext writes to prevent accidental data exposure on disk (`WRITE_BLOCKED_EMERGENCY_MODE`).
 - **Mutex Lock Resilience**: Backend state Mutexes utilize `unwrap_or_else(|e| e.into_inner())` to prevent thread-lock poisoning cascades.
 
-### 🪟 3. Window & IPC Isolation Boundary
+### 🪟 2. Window & IPC Isolation Boundary
 - **Multi-Window Isolation**: The Main Window (`index.html`), Quick Capture HUD (`hud.html`), and Desktop Overlay (`overlay.html`) run in isolated WebView contexts.
 - **Native Shortcut Processing**: System-wide global shortcuts (`Ctrl+Shift+Space`) are registered and handled directly in Rust backend space via `tauri-plugin-global-shortcut`, avoiding webview key-logging risks.
 

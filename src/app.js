@@ -176,6 +176,11 @@ function setupStaticListeners() {
   if (cleanSlateBtn) cleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
   const exitCleanSlateBtn = document.getElementById('exitCleanSlateBtn');
   if (exitCleanSlateBtn) exitCleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
+  
+  document.getElementById('cleanSlateTaskSelect')?.addEventListener('change', () => onCleanSlateTaskSelectChange());
+  document.getElementById('cleanSlateStartPauseBtn')?.addEventListener('click', () => cleanSlateToggleTimer());
+  document.getElementById('cleanSlateRingWrap')?.addEventListener('click', () => cleanSlateToggleTimer());
+  document.getElementById('cleanSlateLogBtn')?.addEventListener('click', () => cleanSlateLogFocus());
 
   // Project / Detailed mode toggles
   document.getElementById('projectModeToggle').addEventListener('change', () => toggleProjectMode());
@@ -184,9 +189,11 @@ function setupStaticListeners() {
   // Select all checkbox
   document.getElementById('selectAllCheck').addEventListener('change', (e) => toggleSelectAll(e.target));
 
-  // Import view
-  document.getElementById('importBtn').addEventListener('click', () => importCSV());
-  document.getElementById('clearImportBtn').addEventListener('click', () => clearImportedFiles());
+  // Date Range Timesheet Viewer listeners
+  document.getElementById('rangeFromDate')?.addEventListener('change', () => renderDateRangeTimesheets());
+  document.getElementById('rangeToDate')?.addEventListener('change', () => renderDateRangeTimesheets());
+  document.getElementById('rangeThisWeekBtn')?.addEventListener('click', () => setRangePreset('this-week'));
+  document.getElementById('rangeThisMonthBtn')?.addEventListener('click', () => setRangePreset('this-month'));
 
   // Settings
   document.getElementById('saveSettingsBtn').addEventListener('click', () => saveSettings());
@@ -440,6 +447,7 @@ function switchView(viewId) {
   document.querySelector(`[data-view="${viewId}"]`).classList.add('active');
   if (viewId === 'settings') renderThemeGrid();
   if (viewId === 'timesheet') renderWeeklyCompletion();
+  if (viewId === 'timesheets-view') initDateRangeViewer();
 }
 
 // ---- Project Mode ----
@@ -472,8 +480,8 @@ function applyDetailedMode() {
   document.getElementById('descColHeader').classList.toggle('hidden', !detailedMode);
   document.querySelectorAll('.ticket-col-cell').forEach(c => c.classList.toggle('hidden', !detailedMode));
   document.querySelectorAll('.desc-col-cell').forEach(c => c.classList.toggle('hidden', !detailedMode));
-  const tmHeader = document.getElementById('detailedModeHeaderToggle');
-  if (tmHeader) tmHeader.style.display = '';
+  const tmToggle = document.getElementById('detailedModeSidebarToggle') || document.getElementById('detailedModeHeaderToggle');
+  if (tmToggle) tmToggle.style.display = '';
 }
 
 function syncDetailedModeFromSettings() {
@@ -796,7 +804,8 @@ function updateTotals() {
   document.getElementById('regularHours').textContent      = regular.toFixed(1) + 'h';
   document.getElementById('overtimeHours').textContent     = overtime.toFixed(1) + 'h';
   document.getElementById('footerTotal').textContent       = total.toFixed(1) + 'h';
-  document.getElementById('totalHoursDisplay').textContent = total.toFixed(1) + 'h';
+  const totalDisplay = document.getElementById('totalHoursDisplay');
+  if (totalDisplay) totalDisplay.textContent = total.toFixed(1) + 'h';
   emit('hours-updated', { total }).catch(() => {});
   return total;
 }
@@ -957,6 +966,8 @@ function updateTimerDisplay(timerId) {
   updateCleanSlateView(timerId, secs, timeStr);
 }
 
+let cleanSlateActiveTimerId = 'new';
+
 function toggleCleanSlateMode() {
   isCleanSlateMode = !isCleanSlateMode;
   const tableContainer = document.querySelector('.table-container');
@@ -972,11 +983,7 @@ function toggleCleanSlateMode() {
     cleanSlateContainer?.classList.remove('hidden');
     cleanSlateBtn?.classList.add('active');
     
-    // Find active running timer or first row
-    const runningTimerId = Object.keys(timers).find(id => timers[id]?.running);
-    if (runningTimerId) {
-      updateTimerDisplay(runningTimerId);
-    }
+    refreshCleanSlateTaskOptions();
   } else {
     tableContainer?.classList.remove('hidden');
     tableFooter?.classList.remove('hidden');
@@ -986,28 +993,147 @@ function toggleCleanSlateMode() {
   }
 }
 
-function updateCleanSlateView(timerId, secs, timeStr) {
-  const cleanSlateTimerText = document.getElementById('cleanSlateTimerText');
-  const cleanSlateProjectName = document.getElementById('cleanSlateProjectName');
-  const cleanSlateTaskName = document.getElementById('cleanSlateTaskName');
-  const spatialRingProgress = document.getElementById('spatialRingProgress');
+function refreshCleanSlateTaskOptions() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  if (!select) return;
 
-  if (cleanSlateTimerText) cleanSlateTimerText.textContent = timeStr;
+  select.innerHTML = '<option value="new">+ Focus on New Unentered Work</option>';
+  
+  const rows = Array.from(document.querySelectorAll('#timesheetBody tr'));
+  let runningTimerId = null;
 
-  const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
-  if (tr) {
-    const taskText = tr.querySelector('.task-input')?.value || 'Focus Session';
-    if (cleanSlateTaskName) cleanSlateTaskName.textContent = taskText;
-    
-    // Extract project if bracketed e.g. [Project] Task
-    const match = taskText.match(/^\[(.*?)\]\s*(.*)$/);
-    if (match && cleanSlateProjectName) {
-      cleanSlateProjectName.textContent = match[1];
-      if (cleanSlateTaskName) cleanSlateTaskName.textContent = match[2] || taskText;
+  rows.forEach((tr, index) => {
+    const timerId = tr.dataset.timerId;
+    const taskText = tr.querySelector('.task-input')?.value.trim();
+    if (taskText) {
+      const opt = document.createElement('option');
+      opt.value = timerId;
+      opt.textContent = `${index + 1}. ${taskText}`;
+      select.appendChild(opt);
     }
+    if (timerId && timers[timerId]?.running) {
+      runningTimerId = timerId;
+    }
+  });
+
+  if (runningTimerId) {
+    select.value = runningTimerId;
+    cleanSlateActiveTimerId = runningTimerId;
+  } else if (!cleanSlateActiveTimerId || cleanSlateActiveTimerId === 'new') {
+    select.value = 'new';
+    cleanSlateActiveTimerId = 'new';
+  } else {
+    select.value = cleanSlateActiveTimerId;
   }
 
-  // Update SVG ring stroke-dashoffset (326.72 circumference for r=52)
+  onCleanSlateTaskSelectChange();
+}
+
+function onCleanSlateTaskSelectChange() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  const customInput = document.getElementById('cleanSlateCustomInput');
+  const projectSelect = document.getElementById('cleanSlateProjectSelect');
+  const startBtn = document.getElementById('cleanSlateStartPauseBtn');
+  const timerText = document.getElementById('cleanSlateTimerText');
+  const val = select?.value || 'new';
+
+  cleanSlateActiveTimerId = val;
+
+  if (val === 'new') {
+    if (customInput) {
+      customInput.value = '';
+      customInput.placeholder = 'What are you focusing on right now?...';
+    }
+    if (startBtn) startBtn.textContent = '▶ Start Focus';
+    if (timerText) timerText.textContent = '00:00:00';
+    updateSpatialRingOffset(0);
+  } else {
+    const tr = document.querySelector(`tr[data-timer-id="${val}"]`);
+    if (tr) {
+      const rawText = tr.querySelector('.task-input')?.value || '';
+      const match = rawText.match(/^\[(.*?)\]\s*(.*)$/);
+      if (match) {
+        if (projectSelect) projectSelect.value = match[1] || 'General';
+        if (customInput) customInput.value = match[2] || rawText;
+      } else {
+        if (customInput) customInput.value = rawText;
+      }
+    }
+    const isRunning = timers[val]?.running;
+    if (startBtn) startBtn.textContent = isRunning ? '⏸ Pause Focus' : '▶ Start Focus';
+    if (val && timers[val]) {
+      updateTimerDisplay(val);
+    } else {
+      if (timerText) timerText.textContent = '00:00:00';
+      updateSpatialRingOffset(0);
+    }
+  }
+}
+
+function cleanSlateToggleTimer() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  const customInput = document.getElementById('cleanSlateCustomInput');
+  const projectSelect = document.getElementById('cleanSlateProjectSelect');
+  let val = select?.value || 'new';
+
+  if (val === 'new') {
+    const taskDesc = customInput?.value.trim() || 'Focus Session';
+    const proj = projectSelect?.value || 'General';
+    const formattedTask = `[${proj}] ${taskDesc}`;
+
+    // Create a new row in today's sheet
+    const tr = addRow({ task: formattedTask, hours: 0, ot: false });
+    const timerId = tr.dataset.timerId;
+
+    // Start timer on this new row
+    toggleTimer(timerId);
+
+    // Refresh options and select the new timerId
+    cleanSlateActiveTimerId = timerId;
+    refreshCleanSlateTaskOptions();
+    showToast(`⚡ Started focus session for: ${taskDesc}`);
+  } else {
+    toggleTimer(val);
+    const isRunning = timers[val]?.running;
+    const startBtn = document.getElementById('cleanSlateStartPauseBtn');
+    if (startBtn) startBtn.textContent = isRunning ? '⏸ Pause Focus' : '▶ Start Focus';
+  }
+}
+
+function cleanSlateLogFocus() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  const customInput = document.getElementById('cleanSlateCustomInput');
+  const projectSelect = document.getElementById('cleanSlateProjectSelect');
+  const val = select?.value || 'new';
+
+  if (val === 'new') {
+    const taskDesc = customInput?.value.trim() || 'Focus Session';
+    const proj = projectSelect?.value || 'General';
+    const formattedTask = `[${proj}] ${taskDesc}`;
+
+    addRow({ task: formattedTask, hours: 0.5, ot: false });
+    saveCurrentSheet();
+    showToast('✓ Logged 0.5h to new focus task');
+    refreshCleanSlateTaskOptions();
+  } else {
+    stepHours(val, 1);
+    saveCurrentSheet();
+    showToast('✓ Logged 0.5h to task');
+  }
+}
+
+function updateCleanSlateView(timerId, secs, timeStr) {
+  if (!isCleanSlateMode) return;
+  const select = document.getElementById('cleanSlateTaskSelect');
+  if (select?.value !== timerId) return;
+
+  const cleanSlateTimerText = document.getElementById('cleanSlateTimerText');
+  if (cleanSlateTimerText) cleanSlateTimerText.textContent = timeStr;
+  updateSpatialRingOffset(secs);
+}
+
+function updateSpatialRingOffset(secs) {
+  const spatialRingProgress = document.getElementById('spatialRingProgress');
   if (spatialRingProgress) {
     const period = 1800; // 30 minute cycle ring
     const progress = (secs % period) / period;
@@ -1077,100 +1203,224 @@ async function exportCSV() {
   if (result.success) showToast(`Exported ✓`);
 }
 
-// ---- Import CSV ----
-async function importCSV() {
-  const files = await invoke('import_csv');
-  if (!files || files.length === 0) return;
+// ---- Date Range Timesheet Viewer ----
+function initDateRangeViewer() {
+  const fromEl = document.getElementById('rangeFromDate');
+  const toEl = document.getElementById('rangeToDate');
+  if (!fromEl || !toEl) return;
 
-  const container = document.getElementById('importedFiles');
-  container.innerHTML = '';
-  document.getElementById('clearImportBtn').classList.remove('hidden');
+  const today = new Date();
+  const monday = getMondayDate(today);
+  const sunday = getSundayDate(today);
 
-  files.forEach(file => {
-    const rows      = parseCSV(file.content);
-    const hasTicket = rows.some(r => (r.ticketNum || '').trim().length > 0);
-    const hasDesc   = rows.some(r => (r.description || '').trim().length > 0);
+  if (!fromEl.value) fromEl.value = formatDateForInput(monday);
+  if (!toEl.value) toEl.value = formatDateForInput(sunday);
 
-    const card = document.createElement('div');
-    card.className = 'imported-file-card';
-
-    const header = document.createElement('div');
-    header.className = 'file-card-header';
-    const iconSpan  = document.createElement('span'); iconSpan.textContent = '📄';
-    const nameSpan  = document.createElement('span'); nameSpan.className = 'file-card-name'; nameSpan.textContent = file.name;
-    const countSpan = document.createElement('span'); countSpan.style.cssText = 'font-size:11px;color:var(--text-3)'; countSpan.textContent = `${rows.length} rows`;
-    header.appendChild(iconSpan); header.appendChild(nameSpan); header.appendChild(countSpan);
-
-    const table = document.createElement('table');
-    table.className = 'imported-table';
-    const thead = document.createElement('thead');
-    let thHTML = '<tr><th>Task</th><th>Hours</th><th>OT</th>';
-    if (hasTicket) thHTML += '<th>Ticket #</th>';
-    if (hasDesc)   thHTML += '<th>Description</th>';
-    thHTML += '<th>Copy</th></tr>';
-    thead.innerHTML = thHTML;
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    rows.forEach(row => {
-      const tr = document.createElement('tr');
-
-      const tdTask  = document.createElement('td'); tdTask.textContent = row.task || '';
-      const tdHours = document.createElement('td'); tdHours.style.fontFamily = 'var(--font-mono)'; tdHours.textContent = row.hours || 0;
-      const tdOT    = document.createElement('td'); tdOT.textContent = row.ot || 'No';
-      tr.appendChild(tdTask); tr.appendChild(tdHours); tr.appendChild(tdOT);
-
-      if (hasTicket) {
-        const tdTicket = document.createElement('td');
-        tdTicket.style.fontFamily = 'var(--font-mono)';
-        tdTicket.textContent = row.ticketNum || '';
-        tr.appendChild(tdTicket);
-      }
-
-      if (hasDesc) {
-        const tdDesc = document.createElement('td');
-        if ((row.description || '').trim().length > 0) {
-          const descBtn = document.createElement('button');
-          descBtn.className = 'copy-task-btn';
-          descBtn.textContent = '📝 View';
-          descBtn.addEventListener('click', () => {
-            activeDescTimerId = null;
-            document.getElementById('descModalTextarea').value = row.description;
-            document.getElementById('descModal').classList.remove('hidden');
-          });
-          tdDesc.appendChild(descBtn);
-        }
-        tr.appendChild(tdDesc);
-      }
-
-      const tdCopy = document.createElement('td');
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'copy-task-btn';
-      copyBtn.textContent = 'Copy';
-      copyBtn.addEventListener('click', () => copyTaskText(copyBtn, row.task || ''));
-      tdCopy.appendChild(copyBtn);
-      tr.appendChild(tdCopy);
-
-      tbody.appendChild(tr);
-    });
-
-    table.appendChild(tbody);
-    card.appendChild(header);
-    card.appendChild(table);
-    container.appendChild(card);
-  });
+  renderDateRangeTimesheets();
 }
 
-function clearImportedFiles() {
-  const container = document.getElementById('importedFiles');
-  container.innerHTML = `
-    <div class="empty-state">
-      <span class="empty-icon">📂</span>
-      <p>No files imported yet</p>
-      <p class="empty-sub">Click "Import Files" to load CSV timesheets</p>
-    </div>
-  `;
-  document.getElementById('clearImportBtn').classList.add('hidden');
+function getMondayDate(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(date.setDate(diff));
+}
+
+function getSundayDate(d) {
+  const monday = getMondayDate(d);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return sunday;
+}
+
+function formatDateForInput(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function setRangePreset(preset) {
+  const fromEl = document.getElementById('rangeFromDate');
+  const toEl = document.getElementById('rangeToDate');
+  const today = new Date();
+
+  if (preset === 'this-week') {
+    fromEl.value = formatDateForInput(getMondayDate(today));
+    toEl.value = formatDateForInput(getSundayDate(today));
+  } else if (preset === 'this-month') {
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    fromEl.value = formatDateForInput(firstDay);
+    toEl.value = formatDateForInput(lastDay);
+  }
+  renderDateRangeTimesheets();
+}
+
+function renderDateRangeTimesheets() {
+  const fromStr = document.getElementById('rangeFromDate')?.value;
+  const toStr = document.getElementById('rangeToDate')?.value;
+  const container = document.getElementById('rangeResultsContainer');
+  if (!container) return;
+
+  if (!fromStr || !toStr) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🗓️</span>
+        <p>Select a date range to view timesheets</p>
+      </div>`;
+    return;
+  }
+
+  const fromDate = new Date(fromStr + 'T00:00:00');
+  const toDate = new Date(toStr + 'T23:59:59');
+
+  let totalHours = 0;
+  let totalOT = 0;
+  let daysCount = 0;
+  const activeDays = [];
+
+  // Iterate dates
+  const curr = new Date(fromDate);
+  while (curr <= toDate) {
+    const dateStr = formatDateForInput(curr);
+    const dayRows = (sheets[dateStr] || []).filter(r => (r.task || '').trim().length > 0 || r.hours > 0);
+    if (dayRows.length > 0) {
+      let dayReg = 0;
+      let dayOT = 0;
+      dayRows.forEach(r => {
+        const h = parseFloat(r.hours) || 0;
+        if (r.ot) dayOT += h;
+        else dayReg += h;
+      });
+      totalHours += (dayReg + dayOT);
+      totalOT += dayOT;
+      daysCount++;
+      activeDays.push({
+        dateStr,
+        dateObj: new Date(curr),
+        rows: dayRows,
+        regHours: dayReg,
+        otHours: dayOT,
+        totalHours: dayReg + dayOT
+      });
+    }
+    curr.setDate(curr.getDate() + 1);
+  }
+
+  if (activeDays.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🗓️</span>
+        <p>No timesheets logged between ${fromStr} and ${toStr}</p>
+      </div>`;
+    return;
+  }
+
+  let html = `
+    <div class="range-summary-banner">
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Days Logged</span>
+        <span class="range-stat-val">${daysCount} days</span>
+      </div>
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Regular Hours</span>
+        <span class="range-stat-val">${(totalHours - totalOT).toFixed(1)}h</span>
+      </div>
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Overtime Hours</span>
+        <span class="range-stat-val" style="color:var(--ot);">${totalOT.toFixed(1)}h</span>
+      </div>
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Total Range Hours</span>
+        <span class="range-stat-val">${totalHours.toFixed(1)}h</span>
+      </div>
+    </div>`;
+
+  activeDays.forEach(day => {
+    const dayName = day.dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+    html += `
+      <div class="range-day-card">
+        <div class="range-day-header">
+          <div class="range-day-title">
+            <span>📅 ${dayName}</span>
+          </div>
+          <div class="range-day-badges">
+            <span class="range-badge total">${day.totalHours.toFixed(1)}h Total</span>
+            ${day.otHours > 0 ? `<span class="range-badge ot">${day.otHours.toFixed(1)}h OT</span>` : ''}
+            <button class="btn-secondary jump-to-date-btn" data-date="${day.dateStr}" style="padding: 3px 8px; font-size: 11px; margin-left: 6px;">
+              Edit Date ↵
+            </button>
+          </div>
+        </div>
+
+        <table class="range-day-table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th style="width:70px;">Hours</th>
+              <th style="width:50px;">OT</th>
+              <th style="width:100px;">Ticket #</th>
+              <th style="width:90px;text-align:center;">Description</th>
+              <th style="width:65px;text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    day.rows.forEach(r => {
+      const hasDesc = (r.description || '').trim().length > 0;
+      html += `
+        <tr>
+          <td style="font-weight:500;">${escHtml(r.task || '')}</td>
+          <td style="font-family:var(--font-mono);">${r.hours || 0}</td>
+          <td>${r.ot ? '<span style="color:var(--ot);font-weight:600;">Yes</span>' : 'No'}</td>
+          <td style="font-family:var(--font-mono);">${escHtml(r.ticketNum || '')}</td>
+          <td style="text-align:center;">
+            ${hasDesc ? `<button class="desc-btn has-desc open-range-desc-btn" data-desc="${escHtml(r.description)}" title="View Description" style="margin: 0 auto;">📝</button>` : '<span style="color:var(--text-3); font-size:11px;">—</span>'}
+          </td>
+          <td style="text-align:center;">
+            <button class="btn-secondary range-copy-task-btn" data-task="${escHtml(r.task || '')}" style="padding: 3px 8px; font-size: 11px;">Copy</button>
+          </td>
+        </tr>`;
+    });
+
+    html += `
+          </tbody>
+        </table>
+      </div>`;
+  });
+
+  container.innerHTML = html;
+
+  // Bind Jump to Date buttons
+  container.querySelectorAll('.jump-to-date-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const date = btn.dataset.date;
+      currentDate = date;
+      document.getElementById('selectedDate').value = date;
+      loadSheetForDate(date);
+      switchView('timesheet');
+    });
+  });
+
+  // Bind Description View buttons
+  container.querySelectorAll('.open-range-desc-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeDescTimerId = null;
+      document.getElementById('descModalTextarea').value = btn.dataset.desc || '';
+      document.getElementById('descModal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('descModalTextarea').focus(), 50);
+    });
+  });
+
+  // Bind Copy Task buttons
+  container.querySelectorAll('.range-copy-task-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const taskText = btn.dataset.task || '';
+      navigator.clipboard.writeText(taskText).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      });
+    });
+  });
 }
 
 function showImportedDesc(btn, text) {

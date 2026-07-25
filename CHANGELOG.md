@@ -7,9 +7,8 @@
 - **Global Quick-Capture HUD (`Ctrl+Shift+Space`)**: Added a floating glassmorphic spotlight-style input HUD (`src/hud.html`) reachable system-wide via `Ctrl+Shift+Space` to log active tasks in under 2 seconds.
 - **Single-Task Isolation Layer ("Clean Slate View")**: Added a `🧘 Clean Slate` focus isolation mode that collapses dense task tables and controls into a serene single-task card to prevent sensory overload.
 - **Spatial Temporal Ring Visualizer**: Integrated a dynamic SVG progress ring visualizer around active timers to ground time perception spatially rather than relying purely on numeric text.
-- **Declarative Tone Engine**: Replaced imperative alert phrasing (*"You need to log..."*) with objective, non-coercive observational statements (*"Daily tracking status: Xh logged towards Yh target"*) to prevent demand-avoidance (PDA) threat responses.
-- **Habituation Defense (Weekly Auto-Theme Shift)**: Implemented automatic 7-day theme rotation across 10 visual palettes to defeat workspace habituation ("workspace blindness") with opt-out settings toggle.
-- **Developer Shell & Git Hooks**: Created ZSH preexec/precmd shell hooks (`scripts/chronoward-shell-hook.zsh`) and Git `post-checkout` branch attribution scripts (`scripts/post-checkout`).
+- **Quick-Capture HUD Enhancements**: Added an optional `Ticket #` input field to the Quick Log HUD and removed default timestamp descriptions.
+- **Date Range Timesheet Viewer (`View Timesheets`)**: Refactored the secondary sidebar workflow from static CSV import into an interactive `View Timesheets` range explorer, featuring `From` and `To` date pickers, range presets (`This Week`, `This Month`), summary stats, daily timesheet cards, and quick-jump navigation (`Edit Date ↵`).
 
 ---
 

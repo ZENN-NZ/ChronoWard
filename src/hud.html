@@ -164,6 +164,8 @@
           <option value="Admin">Admin</option>
         </select>
 
+        <input type="text" id="ticketInput" class="hud-input" placeholder="Ticket # (opt)" style="width: 120px; text-transform: uppercase;" />
+
         <input type="number" id="hoursInput" class="hud-input hud-hours-input" value="0.5" step="0.5" min="0.1" max="24" title="Hours" />
         <span style="font-size:0.85rem; color:#94a3b8;">hours</span>
 
@@ -185,13 +187,20 @@
 
     const taskInput = document.getElementById('taskInput');
     const projectSelect = document.getElementById('projectSelect');
+    const ticketInput = document.getElementById('ticketInput');
     const hoursInput = document.getElementById('hoursInput');
     const commitBtn = document.getElementById('commitBtn');
     const statusMessage = document.getElementById('statusMessage');
 
+    function getTodayString() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
     async function commitLog() {
       const task = taskInput.value.trim();
       const project = projectSelect.value;
+      const ticketNum = ticketInput.value.trim().toUpperCase();
       const hours = parseFloat(hoursInput.value) || 0.5;
 
       if (!task) {
@@ -205,11 +214,11 @@
       statusMessage.style.color = '#38bdf8';
 
       try {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getTodayString();
         let sheets = {};
         try {
-          const raw = await invoke('load_sheets');
-          if (raw) sheets = JSON.parse(raw);
+          const res = await invoke('load_sheets');
+          if (res && res.data) sheets = res.data;
         } catch (e) {
           sheets = {};
         }
@@ -219,22 +228,23 @@
         }
 
         const newRow = {
-          id: 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          timerId: 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
           task: `[${project}] ${task}`,
           hours: hours,
           ot: false,
-          ticket: '',
-          desc: `Logged via Quick Capture HUD on ${new Date().toLocaleTimeString()}`
+          ticketNum: ticketNum,
+          description: ''
         };
 
         sheets[todayStr].push(newRow);
-        await invoke('save_sheets', { sheetsJson: JSON.stringify(sheets) });
+        await invoke('save_sheets', { sheets: sheets });
 
-        // Notify main window to refresh
-        await emit('hud-entry-added', { date: todayStr, entry: newRow });
+        // Notify main window to refresh via Rust command
+        await invoke('notify_hud_entry', { date: todayStr });
 
         // Reset & dismiss
         taskInput.value = '';
+        ticketInput.value = '';
         statusMessage.textContent = 'Logged!';
         setTimeout(async () => {
           await invoke('hide_hud_cmd');
@@ -243,7 +253,8 @@
 
       } catch (err) {
         console.error('HUD Commit Error:', err);
-        statusMessage.textContent = 'Failed to save';
+        const errMsg = typeof err === 'string' ? err : (err.message || JSON.stringify(err));
+        statusMessage.textContent = `Failed: ${errMsg}`;
         statusMessage.style.color = '#f87171';
       }
     }
@@ -260,6 +271,7 @@
 
     listen('hud-opened', () => {
       taskInput.value = '';
+      ticketInput.value = '';
       statusMessage.textContent = 'Ready';
       statusMessage.style.color = '#38bdf8';
       setTimeout(() => taskInput.focus(), 50);

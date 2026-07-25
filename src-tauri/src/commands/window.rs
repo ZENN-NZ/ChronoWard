@@ -138,6 +138,12 @@ pub fn toggle_hud(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+pub fn notify_hud_entry(app: tauri::AppHandle, date: String) -> Result<(), String> {
+    let _ = app.emit("hud-entry-added", date);
+    Ok(())
+}
+
 fn get_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
     app.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())
