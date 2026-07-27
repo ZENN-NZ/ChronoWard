@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] - 2026-07-27
+
+### Fixed
+- **Quick Log Real-Time Sync**: Fixed real-time UI data refresh in the main window when logging activities via the Quick Capture HUD (`Ctrl+Shift+Space`). Exposed a global `handleHudEntryAdded` handler and invoked it via Rust `notify_hud_entry`.
+- **Event Listener Resilience**: Protected window event listener initialization in `app.js` against missing window plugin APIs to ensure event handlers register reliably.
+
+### Changed
+- **Package Lock Synchronization**: Synchronized version number across `package-lock.json` for release consistency.
+
+---
+
 ## [2.0.0] - 2026-07-23
 
 ### Major Architecture & Neurodivergent UX Release
