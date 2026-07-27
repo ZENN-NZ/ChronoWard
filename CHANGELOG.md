@@ -1,28 +1,21 @@
 # Changelog
 
-## [Unreleased] - 2026-07-27
+## [2.0.0] - 2026-07-27
 
-### Security & Architecture
-- **Enterprise Capabilities Security**: Configured granular Tauri v2 window capabilities (`src-tauri/capabilities/`) following the Principle of Least Privilege. Granted `allow-listen` to the `main` window and `allow-emit` to the `hud` window, removing temporary backend `eval` workarounds and securing IPC event communication.
+### Core Features & Neurodivergent UX
+- **Designed for Focus (ADHD / ASD Support)**: Built ChronoWard's layout specifically to reduce distractions, combat time-blindness, and assist with executive focus and task management.
+- **Quick-Capture HUD (`Ctrl+Shift+Space`)**: Press `Ctrl+Shift+Space` anywhere on your computer to open a pop-up window (`src/hud.html`) and log active tasks in seconds.
+- **Pomodoro Focus View**: Added a `🍅 Pomodoro` mode that hides busy tables and displays only your single active task card to prevent feeling overwhelmed.
+- **Visual Time Ring**: Added a smooth progress ring around active timers so you can visually see time passing rather than just watching numbers count down.
+- **Quick-Capture Enhancements**: Added an optional `Ticket #` field to the Quick Log HUD and removed default timestamp descriptions.
+- **Date Range Timesheet Explorer**: Refactored the secondary view into an interactive range explorer featuring `From` and `To` date pickers, quick presets (`This Week`, `This Month`), summary stats, and easy day navigation (`Edit Date ↵`).
 
-### Fixed
-- **Quick Log Real-Time Sync**: Restored native IPC event broadcasting (`hud-entry-added`) for instant real-time UI data refresh in the main window when submitting logs via Quick Capture HUD (`Ctrl+Shift+Space`).
-- **Event Listener Resilience**: Cleaned up window event listener initialization in `app.js` and removed unused API dependencies.
-
-### Changed
-- **Package Lock Synchronization**: Synchronized version number across `package-lock.json` for release consistency.
-
----
-
-## [2.0.0] - 2026-07-23
-
-### Major Architecture & Neurodivergent UX Release
-- **Computational Prosthesis Architecture**: Refactored ChronoWard into a dedicated computational prosthesis for neurodivergent workflows (ADHD, ASD, PDA), addressing executive dysfunction, time blindness, demand avoidance, and sensory gating.
-- **Global Quick-Capture HUD (`Ctrl+Shift+Space`)**: Added a floating glassmorphic spotlight-style input HUD (`src/hud.html`) reachable system-wide via `Ctrl+Shift+Space` to log active tasks in under 2 seconds.
-- **Single-Task Isolation Layer ("Clean Slate View")**: Added a `🧘 Clean Slate` focus isolation mode that collapses dense task tables and controls into a serene single-task card to prevent sensory overload.
-- **Spatial Temporal Ring Visualizer**: Integrated a dynamic SVG progress ring visualizer around active timers to ground time perception spatially rather than relying purely on numeric text.
-- **Quick-Capture HUD Enhancements**: Added an optional `Ticket #` input field to the Quick Log HUD and removed default timestamp descriptions.
-- **Date Range Timesheet Viewer (`View Timesheets`)**: Refactored the secondary sidebar workflow from static CSV import into an interactive `View Timesheets` range explorer, featuring `From` and `To` date pickers, range presets (`This Week`, `This Month`), summary stats, daily timesheet cards, and quick-jump navigation (`Edit Date ↵`).
+### Security, Communication & Stability Fixes
+- **Enterprise Security Permissions**: Created official permission files (`src-tauri/capabilities/`) to safely control what each window can do. The main window can listen for updates, while the HUD window can send them, keeping the app secure for enterprise environments.
+- **Real-Time Log Refresh**: Fixed an issue where new logs entered in the Quick Capture HUD didn't show up on screen immediately. The main window now refreshes instantly when a log is saved.
+- **App Startup Reliability**: Cleaned up window initialization in `app.js` to ensure the app launches without background errors.
+- **Keyboard Shortcuts Help Menu (`?`)**: Added `Ctrl+Shift+Space` (Open Quick Capture HUD) to the interactive Keyboard Shortcuts help modal (`?`).
+- **Version Alignment**: Updated project configuration files (`package-lock.json` and `package.json`) so version numbers match across the codebase.
 
 ---
 
