@@ -140,7 +140,16 @@ pub fn toggle_hud(app: &tauri::AppHandle) {
 
 #[tauri::command]
 pub fn notify_hud_entry(app: tauri::AppHandle, date: String) -> Result<(), String> {
-    let _ = app.emit("hud-entry-added", date);
+    println!("BACKEND: notify_hud_entry called with date: {}", date);
+    if let Ok(main) = get_main_window(&app) {
+        println!("BACKEND: Main window found, executing eval...");
+        match main.eval("if (typeof window.handleHudEntryAdded === 'function') { window.handleHudEntryAdded(); } else { console.error('MAIN: handleHudEntryAdded is not defined!'); }") {
+            Ok(_) => println!("BACKEND: Successfully executed eval"),
+            Err(e) => println!("BACKEND: Failed to execute eval: {}", e),
+        }
+    } else {
+        println!("BACKEND: Main window not found!");
+    }
     Ok(())
 }
 

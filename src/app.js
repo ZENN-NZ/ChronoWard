@@ -209,11 +209,11 @@ function setupStaticListeners() {
 // ── Event listeners (replaces electronAPI.on* pattern) ───────────────────────
 
 async function setupEventListeners() {
-  const { getCurrentWindow } = window.__TAURI__.window;
-  const appWindow = getCurrentWindow();
-
-  // Scheduler → renderer: check if hours warning should show
-  await listen('check-hours-warning', () => {
+  console.log('MAIN: setupEventListeners started');
+  
+  try {
+    // Scheduler → renderer: check if hours warning should show
+    await listen('check-hours-warning', () => {
     if (currentDate === getTodayString()) checkHoursWarning();
   });
 
@@ -222,24 +222,30 @@ async function setupEventListeners() {
     showToast(`⏰ Focus reminder: ${event.payload}`);
   });
 
-  // Main process → renderer: emergency mode activated
-  await listen('emergency-mode', (event) => {
-    enterEmergencyMode(event.payload);
-  });
-
-  // HUD → renderer: quick log entry added via HUD
-  await listen('hud-entry-added', async (event) => {
-    const sheetsResult = await invoke('load_sheets');
-    if (sheetsResult && sheetsResult.data) {
-      sheets = sheetsResult.data;
-      if (currentDate === getTodayString()) {
-        loadSheetForDate(currentDate);
-        renderWeeklyCompletion();
-      }
-    }
-    showToast('⚡ Quick log entry added');
-  });
+    // Main process → renderer: emergency mode activated
+    await listen('emergency-mode', (event) => {
+      enterEmergencyMode(event.payload);
+    });
+  } catch (err) {
+    console.error('MAIN: Failed to register one or more event listeners. Tauri v2 capabilities might be missing.', err);
+  }
 }
+
+// HUD → renderer: quick log entry added via HUD (using global function for Rust eval)
+window.handleHudEntryAdded = async function() {
+  console.log('MAIN: handleHudEntryAdded called via eval!');
+  const sheetsResult = await invoke('load_sheets');
+  console.log('MAIN: handleHudEntryAdded loaded sheets', sheetsResult);
+  if (sheetsResult && sheetsResult.data) {
+    sheets = sheetsResult.data;
+    if (currentDate === getTodayString()) {
+      console.log('MAIN: Updating UI in handleHudEntryAdded');
+      loadSheetForDate(currentDate);
+      renderWeeklyCompletion();
+    }
+  }
+  showToast('⚡ Quick log entry added');
+};
 
 // ---- Date helpers ----
 function getTodayString() {
