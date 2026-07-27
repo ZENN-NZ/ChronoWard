@@ -87,7 +87,6 @@ pub fn run() {
             commands::window::minimize_to_tray,
             commands::window::toggle_hud_cmd,
             commands::window::hide_hud_cmd,
-            commands::window::notify_hud_entry,
         ])
         .setup(|app| {
             use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};

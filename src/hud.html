@@ -239,8 +239,8 @@
         sheets[todayStr].push(newRow);
         await invoke('save_sheets', { sheets: sheets });
 
-        // Notify main window to refresh via Rust command
-        await invoke('notify_hud_entry', { date: todayStr });
+        // Notify main window to refresh via frontend event
+        await emit('hud-entry-added', todayStr);
 
         // Reset & dismiss
         taskInput.value = '';

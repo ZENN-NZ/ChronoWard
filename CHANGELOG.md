@@ -2,9 +2,12 @@
 
 ## [Unreleased] - 2026-07-27
 
+### Security & Architecture
+- **Enterprise Capabilities Security**: Configured granular Tauri v2 window capabilities (`src-tauri/capabilities/`) following the Principle of Least Privilege. Granted `allow-listen` to the `main` window and `allow-emit` to the `hud` window, removing temporary backend `eval` workarounds and securing IPC event communication.
+
 ### Fixed
-- **Quick Log Real-Time Sync**: Fixed real-time UI data refresh in the main window when logging activities via the Quick Capture HUD (`Ctrl+Shift+Space`). Exposed a global `handleHudEntryAdded` handler and invoked it via Rust `notify_hud_entry`.
-- **Event Listener Resilience**: Protected window event listener initialization in `app.js` against missing window plugin APIs to ensure event handlers register reliably.
+- **Quick Log Real-Time Sync**: Restored native IPC event broadcasting (`hud-entry-added`) for instant real-time UI data refresh in the main window when submitting logs via Quick Capture HUD (`Ctrl+Shift+Space`).
+- **Event Listener Resilience**: Cleaned up window event listener initialization in `app.js` and removed unused API dependencies.
 
 ### Changed
 - **Package Lock Synchronization**: Synchronized version number across `package-lock.json` for release consistency.
