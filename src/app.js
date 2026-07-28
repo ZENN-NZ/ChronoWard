@@ -1,5 +1,6 @@
 import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates } from './utils.js';
 import * as api from './api.js';
+import { store } from './state.js';
 
 const invoke = (cmd, args) => window.__TAURI__?.core?.invoke(cmd, args);
 const listen = (event, handler) => window.__TAURI__?.event?.listen(event, handler);
@@ -197,36 +198,26 @@ function setupStaticListeners() {
   document.getElementById('descCloseBtn').addEventListener('click', () => closeDescModal());
 }
 
-// ── Event listeners (replaces electronAPI.on* pattern) ───────────────────────
+// ── Event listeners (centralized via api.js & store) ───────────────────────
 
 async function setupEventListeners() {
-  // Scheduler → renderer: check if hours warning should show
-  await listen('check-hours-warning', () => {
+  store.on('check-hours-warning', () => {
     if (currentDate === getTodayString()) checkHoursWarning();
   });
 
-  // Scheduler → renderer: focus time triggered (subtle UI indicator)
-  await listen('focus-time-trigger', (event) => {
-    showToast(`⏰ Focus reminder: ${event.payload}`);
+  store.on('emergency-mode', (payload) => {
+    enterEmergencyMode(payload);
   });
 
-  // Main process → renderer: emergency mode activated
-  await listen('emergency-mode', (event) => {
-    enterEmergencyMode(event.payload);
-  });
-
-  // HUD → renderer: quick log entry added via HUD
-  await listen('hud-entry-added', async (event) => {
-    const sheetsResult = await invoke('load_sheets');
-    if (sheetsResult && sheetsResult.data) {
-      sheets = sheetsResult.data;
-      if (currentDate === getTodayString()) {
-        loadSheetForDate(currentDate);
-        renderWeeklyCompletion();
-      }
+  store.on('hud-entry-added', () => {
+    sheets = store.sheets;
+    if (currentDate === getTodayString()) {
+      loadSheetForDate(currentDate);
+      renderWeeklyCompletion();
     }
-    showToast('⚡ Quick log entry added');
   });
+
+  await api.setupIPCListeners(store, showToast);
 }
 
 // ---- Weekly completion helpers ----

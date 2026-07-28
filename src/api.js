@@ -61,3 +61,30 @@ export async function listenEvent(event, callback) {
     return await listen(event, callback);
   }
 }
+
+export async function setupIPCListeners(store, onToast) {
+  const { listen } = getTauri().event;
+  if (!listen) return;
+
+  await listen('check-hours-warning', () => {
+    store.emit('check-hours-warning');
+  });
+
+  await listen('focus-time-trigger', (event) => {
+    if (onToast) onToast(`⏰ Focus reminder: ${event.payload}`);
+  });
+
+  await listen('emergency-mode', (event) => {
+    store.isEmergencyMode = true;
+    store.emit('emergency-mode', event.payload);
+  });
+
+  await listen('hud-entry-added', async () => {
+    const sheetsResult = await loadSheets();
+    if (sheetsResult && sheetsResult.data) {
+      store.sheets = sheetsResult.data;
+      store.emit('hud-entry-added');
+    }
+    if (onToast) onToast('⚡ Quick log entry added');
+  });
+}
