@@ -26,6 +26,7 @@ pub fn run() {
 
     let data_dir = resolve_data_dir();
     ensure_data_dir(&data_dir);
+    cleanup_temp_files(&data_dir);
 
     let (keychain_status, crypto_key) = probe_keychain();
 
@@ -246,4 +247,72 @@ fn check_encrypted_data_exists(data_dir: &std::path::Path) -> bool {
         }
     }
     false
+}
+
+fn cleanup_temp_files(dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs(3600); // 1 hour
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.contains(".tmp.") {
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        if let Ok(age) = now.duration_since(modified) {
+                            if age > max_age {
+                                if let Err(e) = std::fs::remove_file(&path) {
+                                    warn!("Failed to remove orphaned temp file {:?}: {e}", path);
+                                } else {
+                                    info!("Cleaned up orphaned temp file {:?}", path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cleanup_temp_files_preserves_valid_data() {
+        let temp_dir = std::env::temp_dir().join("chronoward_cleanup_test");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let valid_file = temp_dir.join("sheets.json");
+        let _ = std::fs::write(&valid_file, "valid data");
+
+        cleanup_temp_files(&temp_dir);
+
+        assert!(valid_file.exists());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_cleanup_temp_files_deletes_expired_tmp_files() {
+        let temp_dir = std::env::temp_dir().join("chronoward_cleanup_test_expired");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let old_tmp = temp_dir.join("sheets.json.tmp.12345");
+        let file = std::fs::File::create(&old_tmp).unwrap();
+
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        let _ = file.set_modified(two_hours_ago);
+        drop(file);
+
+        cleanup_temp_files(&temp_dir);
+
+        assert!(!old_tmp.exists());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
