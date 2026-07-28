@@ -771,9 +771,11 @@ function stepHours(timerId, dir) {
   const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
   if (!tr) return;
   const input = tr.querySelector('.hours-input');
-  const inc   = parseFloat(settings.hourIncrement) || 0.5;
-  let val     = parseFloat(input.value) || 0;
+  const rawInc = parseFloat(settings.hourIncrement);
+  const inc    = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
+  let val      = parseFloat(input.value) || 0;
   val = Math.max(0, Math.round((val + dir * inc) / inc) * inc);
+  val = Math.round(val * 100) / 100;
   input.value = parseFloat(val.toFixed(2));
   onDataChange();
   saveCurrentSheet();
@@ -792,12 +794,14 @@ function toggleOT(btn, timerId) {
 function updateTotals() {
   let regular = 0, overtime = 0;
   document.querySelectorAll('#timesheetBody tr').forEach(tr => {
-    const hours = parseFloat(tr.querySelector('.hours-input')?.value) || 0;
+    const hours = Math.round((parseFloat(tr.querySelector('.hours-input')?.value) || 0) * 100) / 100;
     const ot    = tr.querySelector('.ot-toggle')?.classList.contains('active');
     if (ot) overtime += hours;
     else    regular  += hours;
   });
-  const total = regular + overtime;
+  regular  = Math.round(regular * 100) / 100;
+  overtime = Math.round(overtime * 100) / 100;
+  const total = Math.round((regular + overtime) * 100) / 100;
   document.getElementById('regularHours').textContent      = regular.toFixed(1) + 'h';
   document.getElementById('overtimeHours').textContent     = overtime.toFixed(1) + 'h';
   document.getElementById('footerTotal').textContent       = total.toFixed(1) + 'h';
