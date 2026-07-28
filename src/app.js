@@ -1,6 +1,7 @@
 import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates } from './utils.js';
 import * as api from './api.js';
 import { store } from './state.js';
+import * as timersModule from './timers.js';
 
 const invoke = (cmd, args) => window.__TAURI__?.core?.invoke(cmd, args);
 const listen = (event, handler) => window.__TAURI__?.event?.listen(event, handler);
@@ -481,6 +482,7 @@ function loadSheetForDate(date) {
   if (rows.length === 0) addRow();
   else rows.forEach(r => addRow(r));
   updateTotals();
+  restoreTimers();
 }
 
 function saveCurrentSheet() {
@@ -834,75 +836,17 @@ function duplicateRow(timerId) {
   saveCurrentSheet();
 }
 
-// ---- Timers ---- (unchanged logic, save via invoke)
+// ---- Timers (decoupled via timers.js) ----
 function toggleTimer(timerId) {
-  if (!timers[timerId]) timers[timerId] = { elapsed: 0, running: false, startedAt: null };
-  const t = timers[timerId];
-  if (t.running) {
-    t.elapsed  += Date.now() - t.startedAt;
-    t.running   = false;
-    t.startedAt = null;
-    clearInterval(activeTimerIntervals[timerId]);
-    delete activeTimerIntervals[timerId];
-    updateTimerBtnState(timerId, false);
-    const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-    if (stopBtn) stopBtn.classList.remove('hidden');
-  } else {
-    t.running   = true;
-    t.startedAt = Date.now();
-    activeTimerIntervals[timerId] = setInterval(() => updateTimerDisplay(timerId), 1000);
-    updateTimerBtnState(timerId, true);
-    const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-    if (stopBtn) stopBtn.classList.add('hidden');
-  }
-  if (!isEmergencyMode) invoke('save_timers', { timers }).catch(console.error);
+  timersModule.toggleTimer(timerId, store, updateCleanSlateView);
 }
 
 function stopTimer(timerId, silent = false) {
-  const t = timers[timerId];
-  if (!t) return;
-  if (t.running) {
-    t.elapsed  += Date.now() - t.startedAt;
-    t.running   = false;
-    t.startedAt = null;
-    clearInterval(activeTimerIntervals[timerId]);
-    delete activeTimerIntervals[timerId];
-  }
-  if (!silent) {
-    const totalHoursRaw = t.elapsed / 1000 / 3600;
-    const roundedHours  = Math.ceil(totalHoursRaw * 2) / 2;
-    const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
-    if (tr) {
-      const input   = tr.querySelector('.hours-input');
-      const existing = parseFloat(input.value) || 0;
-      input.value   = (existing + roundedHours).toFixed(1);
-    }
-  }
-  delete timers[timerId];
-  if (!isEmergencyMode) invoke('save_timers', { timers }).catch(console.error);
-  const display = document.getElementById(`timer-display-${timerId}`);
-  if (display) display.textContent = '00:00:00';
-  const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-  if (stopBtn) stopBtn.classList.add('hidden');
-  updateTimerBtnState(timerId, false);
-  if (!silent) { onDataChange(); saveCurrentSheet(); }
+  timersModule.stopTimer(timerId, silent, store, { onDataChange, saveCurrentSheet });
 }
 
 function updateTimerDisplay(timerId) {
-  const t = timers[timerId];
-  if (!t) return;
-  let elapsed = t.elapsed;
-  if (t.running && t.startedAt) elapsed += Date.now() - t.startedAt;
-  const secs = Math.floor(elapsed / 1000);
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  const display = document.getElementById(`timer-display-${timerId}`);
-  if (display) {
-    display.textContent = timeStr;
-  }
-  updateCleanSlateView(timerId, secs, timeStr);
+  timersModule.updateTimerDisplay(timerId, store, updateCleanSlateView);
 }
 
 let cleanSlateActiveTimerId = 'new';
@@ -1081,26 +1025,10 @@ function updateSpatialRingOffset(secs) {
   }
 }
 
-function updateTimerBtnState(timerId, running) {
-  const btn = document.querySelector(`.timer-btn[data-timer-id="${timerId}"]`);
-  if (!btn) return;
-  btn.classList.toggle('running', running);
-  btn.setAttribute('aria-label', running ? 'Pause timer' : 'Start timer');
-}
+
 
 function restoreTimers() {
-  Object.entries(timers).forEach(([timerId, t]) => {
-    if (t.running) {
-      activeTimerIntervals[timerId] = setInterval(() => updateTimerDisplay(timerId), 1000);
-      updateTimerBtnState(timerId, true);
-      const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-      if (stopBtn) stopBtn.classList.add('hidden');
-    } else if (t.elapsed > 0) {
-      updateTimerDisplay(timerId);
-      const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-      if (stopBtn) stopBtn.classList.remove('hidden');
-    }
-  });
+  timersModule.restoreTimers(store, updateCleanSlateView);
 }
 
 
