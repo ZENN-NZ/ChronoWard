@@ -19,7 +19,7 @@ use serde_json::Value;
 use tauri::State;
 use tracing::{error, info, warn};
 
-use crate::{commands::settings::atomic_write, crypto, guard_write, state::AppState};
+use crate::{commands::settings::atomic_write, guard_write, state::AppState};
 
 /// Loads all timesheet data from disk.
 ///
@@ -63,7 +63,7 @@ pub async fn load_sheets(state: State<'_, AppState>) -> Result<Value, String> {
                 "encryptedDataExists": true,
             }));
         }
-        match crypto::decrypt(raw.trim()) {
+        match state.decrypt(raw.trim()) {
             Ok(result) => {
                 if result.needs_reencrypt() {
                     *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -121,7 +121,7 @@ pub async fn save_sheets(sheets: Value, state: State<'_, AppState>) -> Result<()
         .map_err(|e| format!("Failed to serialise sheets: {e}"))?;
 
     let to_write = if state.keychain_available() {
-        crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt sheets: {e}"))?
+        state.encrypt(&json).map_err(|e| format!("Failed to encrypt sheets: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_sheets — refusing to write unencrypted data"

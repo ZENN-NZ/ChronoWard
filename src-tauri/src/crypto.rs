@@ -12,6 +12,7 @@
 /// survives app reinstalls (the key lives in the OS keychain, not the app).
 use anyhow::{anyhow, Context, Result};
 use keyring::Entry;
+use secrecy::{ExposeSecret, SecretVec};
 use tracing::{debug, error, info, warn};
 
 // ── Keychain identity ─────────────────────────────────────────────────────────
@@ -40,21 +41,21 @@ pub enum KeychainStatus {
     Unavailable(String), // holds human-readable reason
 }
 
-/// Probes the OS keychain to determine availability.
-/// This is called once at startup — result is stored in AppState.
+/// Probes the OS keychain to determine availability and retrieve key.
+/// This is called once at startup — result and cached key are stored in AppState.
 ///
 /// On success, also ensures a key exists (creates one if this is a fresh
 /// install). This means first-run key generation happens here, not lazily
 /// during the first save, so we fail fast rather than at save time.
-pub fn probe_keychain() -> KeychainStatus {
+pub fn probe_keychain() -> (KeychainStatus, Option<SecretVec<u8>>) {
     match ensure_key_exists() {
-        Ok(_) => {
+        Ok(key) => {
             info!("Keychain probe: available");
-            KeychainStatus::Available
+            (KeychainStatus::Available, Some(SecretVec::new(key)))
         }
         Err(e) => {
             error!("Keychain probe failed: {e}");
-            KeychainStatus::Unavailable(e.to_string())
+            (KeychainStatus::Unavailable(e.to_string()), None)
         }
     }
 }
@@ -103,36 +104,22 @@ fn generate_random_key() -> Result<Vec<u8>> {
     Ok(key)
 }
 
-/// Retrieves the key from keychain. Fails hard if unavailable.
-/// Never falls back to any alternative — callers must check KeychainStatus
-/// before calling this.
-fn get_key() -> Result<Vec<u8>> {
-    let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
-        .context("Failed to create keychain entry handle")?;
-    let stored = entry
-        .get_password()
-        .context("Failed to retrieve encryption key from keychain")?;
-    let key = hex::decode(&stored).context("Keychain key is not valid hex")?;
-    Ok(key)
-}
-
 // ── Public encrypt / decrypt API ──────────────────────────────────────────────
 
-/// Encrypts `plaintext` using AES-256-GCM with the OS keychain key.
+/// Encrypts `plaintext` using AES-256-GCM with the provided cached key.
 /// Returns a string with the "enc1:" sentinel prefix prepended.
 ///
 /// The output format is:  enc1:<hex(nonce)><hex(ciphertext+tag)>
 /// Nonce is 96 bits (12 bytes), randomly generated per-encryption.
 /// GCM tag is appended by the aes-gcm crate (16 bytes).
-pub fn encrypt(plaintext: &str) -> Result<String> {
+pub fn encrypt(plaintext: &str, key: &SecretVec<u8>) -> Result<String> {
     use aes_gcm::{
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
     };
     use rand::RngCore;
 
-    let key_bytes = get_key()?;
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+    let cipher = Aes256Gcm::new_from_slice(key.expose_secret())
         .map_err(|_| anyhow::anyhow!("Failed to initialise AES-256-GCM cipher"))?;
 
     // Fresh random nonce per encryption — never reuse nonces with GCM
@@ -154,16 +141,17 @@ pub fn encrypt(plaintext: &str) -> Result<String> {
 /// Decrypts a value previously produced by `encrypt()`.
 ///
 /// Handles three cases:
-///   1. "enc1:" prefix   → decrypt with keychain key
+///   1. "enc1:" prefix   → decrypt with cached key
 ///   2. No prefix        → treat as plaintext (legacy migration)
 ///   3. Unknown prefix   → hard error (never silently skip unknown formats)
 ///
 /// Returns `DecryptResult` to distinguish between "decrypted OK",
 /// "was plaintext — caller should re-encrypt on next save", and "error".
-pub fn decrypt(stored: &str) -> Result<DecryptResult> {
+pub fn decrypt(stored: &str, key: Option<&SecretVec<u8>>) -> Result<DecryptResult> {
     if let Some(payload) = stored.strip_prefix(PREFIX_KEYCHAIN) {
         // Primary path: keychain-encrypted data
-        let decrypted = decrypt_enc1(payload)?;
+        let key = key.ok_or_else(|| anyhow!("OS keychain key unavailable for decryption"))?;
+        let decrypted = decrypt_enc1(payload, key)?;
         Ok(DecryptResult::Decrypted(decrypted))
     } else if !stored.is_empty() && !stored.starts_with("enc") {
         // Legacy plaintext — valid JSON that predates encryption
@@ -207,7 +195,7 @@ impl DecryptResult {
 }
 
 /// Inner decryption for enc1: payloads.
-fn decrypt_enc1(hex_payload: &str) -> Result<String> {
+fn decrypt_enc1(hex_payload: &str, key: &SecretVec<u8>) -> Result<String> {
     use aes_gcm::{
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
@@ -223,8 +211,7 @@ fn decrypt_enc1(hex_payload: &str) -> Result<String> {
     let (nonce_bytes, ciphertext) = combined.split_at(12);
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    let key_bytes = get_key()?;
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+    let cipher = Aes256Gcm::new_from_slice(key.expose_secret())
         .map_err(|_| anyhow::anyhow!("Failed to initialise AES-256-GCM cipher"))?;
 
     let plaintext_bytes = cipher.decrypt(nonce, ciphertext).map_err(|_| {
@@ -243,14 +230,8 @@ fn decrypt_enc1(hex_payload: &str) -> Result<String> {
 mod tests {
     use super::*;
 
-    // Note: keychain tests require a real OS keychain and are integration tests.
-    // The unit tests below cover the pure crypto logic with a synthetic key
-    // injected via a test-only helper.
-
     #[test]
     fn test_enc1_roundtrip_via_internal_functions() {
-        // We test the AES-GCM layer directly since keychain needs OS context.
-        // This exercises the same code path that encrypt/decrypt use internally.
         use aes_gcm::{
             aead::{Aead, KeyInit},
             Aes256Gcm, Nonce,
@@ -279,7 +260,7 @@ mod tests {
     #[test]
     fn test_decrypt_detects_plaintext_legacy() {
         let legacy_json = r#"{"2025-01-15": []}"#;
-        let result = decrypt(legacy_json).unwrap();
+        let result = decrypt(legacy_json, None).unwrap();
         assert!(result.needs_reencrypt());
         assert_eq!(result.into_plaintext(), legacy_json);
     }
@@ -287,15 +268,15 @@ mod tests {
     #[test]
     fn test_decrypt_rejects_unknown_sentinel() {
         let bad = "enc9:somepayload";
-        let result = decrypt(bad);
+        let result = decrypt(bad, None);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_decrypt_rejects_truncated_enc1_payload() {
-        // 10 bytes hex = 5 bytes data, less than the 28-byte minimum
         let bad = "enc1:deadbeefdeadbeef1234";
-        let result = decrypt(bad);
+        let key = SecretVec::new(vec![0u8; 32]);
+        let result = decrypt(bad, Some(&key));
         assert!(result.is_err());
     }
 
@@ -307,18 +288,16 @@ mod tests {
 
     #[test]
     fn test_two_encryptions_produce_different_ciphertext() {
-        // This test requires a live keychain — skip in CI if keychain unavailable.
-        // If keychain IS available, verifies nonce randomness.
-        if probe_keychain() == KeychainStatus::Available {
+        let (status, key) = probe_keychain();
+        if status == KeychainStatus::Available {
+            let key = key.unwrap();
             let plaintext = "same plaintext";
-            let ct1 = encrypt(plaintext).unwrap();
-            let ct2 = encrypt(plaintext).unwrap();
-            // Same plaintext, different ciphertext (different nonces)
+            let ct1 = encrypt(plaintext, &key).unwrap();
+            let ct2 = encrypt(plaintext, &key).unwrap();
             assert_ne!(ct1, ct2);
-            // Both decrypt to the same value
             assert_eq!(
-                decrypt(&ct1).unwrap().into_plaintext(),
-                decrypt(&ct2).unwrap().into_plaintext()
+                decrypt(&ct1, Some(&key)).unwrap().into_plaintext(),
+                decrypt(&ct2, Some(&key)).unwrap().into_plaintext()
             );
         }
     }

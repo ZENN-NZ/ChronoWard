@@ -27,7 +27,7 @@ pub fn run() {
     let data_dir = resolve_data_dir();
     ensure_data_dir(&data_dir);
 
-    let keychain_status = probe_keychain();
+    let (keychain_status, crypto_key) = probe_keychain();
 
     let emergency = match &keychain_status {
         KeychainStatus::Unavailable(reason) => {
@@ -38,7 +38,7 @@ pub fn run() {
         KeychainStatus::Available => None,
     };
 
-    let mut app_state = AppState::new(data_dir.clone(), keychain_status);
+    let mut app_state = AppState::new(data_dir.clone(), keychain_status, crypto_key);
     if let Some((reason, encrypted_exists)) = emergency {
         app_state.set_emergency_mode(reason, encrypted_exists);
     }
@@ -123,7 +123,7 @@ pub fn run() {
                 if let Ok(raw) = std::fs::read_to_string(&s_path) {
                     let plaintext = if raw.trim_start().starts_with("enc1:") {
                         if state.keychain_available() {
-                            crypto::decrypt(raw.trim())
+                            state.decrypt(raw.trim())
                                 .map(|r| r.into_plaintext())
                                 .ok()
                         } else {

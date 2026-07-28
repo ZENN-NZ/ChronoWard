@@ -13,7 +13,7 @@ use serde_json::Value;
 use tauri::State;
 use tracing::{info, warn};
 
-use crate::{commands::settings::atomic_write, crypto, guard_write, state::AppState};
+use crate::{commands::settings::atomic_write, guard_write, state::AppState};
 
 /// Loads timer state from disk.
 /// Returns an empty object if the file doesn't exist (no running timers
@@ -43,7 +43,7 @@ pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
             warn!("Timers encrypted but keychain unavailable — returning empty");
             return Ok(serde_json::json!({}));
         }
-        crypto::decrypt(raw.trim())
+        state.decrypt(raw.trim())
             .map_err(|e| format!("Failed to decrypt timers.json: {e}"))?
             .into_plaintext()
     } else {
@@ -73,7 +73,7 @@ pub async fn save_timers(timers: Value, state: State<'_, AppState>) -> Result<()
         .map_err(|e| format!("Failed to serialise timers: {e}"))?;
 
     let to_write = if state.keychain_available() {
-        crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt timers: {e}"))?
+        state.encrypt(&json).map_err(|e| format!("Failed to encrypt timers: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_timers — refusing to write unencrypted data"

@@ -14,6 +14,7 @@
 ///     layers. AppState is pure in-memory cache + metadata.
 use std::{path::PathBuf, sync::Mutex};
 
+use secrecy::SecretVec;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -53,6 +54,16 @@ pub struct Settings {
 
     #[serde(default = "default_overlay_position")]
     pub overlay_position: String,
+
+    #[serde(default = "default_auto_rotate_theme")]
+    pub auto_rotate_theme: bool,
+
+    #[serde(default)]
+    pub installed_at: Option<u64>,
+}
+
+fn default_auto_rotate_theme() -> bool {
+    true
 }
 
 fn default_overlay_position() -> String {
@@ -95,6 +106,8 @@ impl Default for Settings {
             min_hours_warning: default_min_hours_warning(),
             auto_start: default_auto_start(),
             overlay_position: default_overlay_position(),
+            auto_rotate_theme: default_auto_rotate_theme(),
+            installed_at: None,
         }
     }
 }
@@ -141,12 +154,19 @@ pub struct AppState {
 
     /// Async lock to serialize disk writes across async Tauri command handlers.
     pub write_lock: tokio::sync::Mutex<()>,
+
+    /// Cached encryption key retrieved from OS keychain at startup.
+    pub crypto_key: Option<SecretVec<u8>>,
 }
 
 impl AppState {
     /// Constructs the initial state. Called from `lib.rs` during app setup
     /// before any windows open, so keychain probe happens before any UI.
-    pub fn new(data_dir: PathBuf, keychain_status: KeychainStatus) -> Self {
+    pub fn new(
+        data_dir: PathBuf,
+        keychain_status: KeychainStatus,
+        crypto_key: Option<SecretVec<u8>>,
+    ) -> Self {
         debug!("AppState::new — data_dir: {:?}", data_dir);
         Self {
             data_dir,
@@ -156,7 +176,22 @@ impl AppState {
             has_legacy_plaintext: Mutex::new(false),
             warning_active: Mutex::new(false),
             write_lock: tokio::sync::Mutex::new(()),
+            crypto_key,
         }
+    }
+
+    /// Helper to encrypt using the cached key.
+    pub fn encrypt(&self, plaintext: &str) -> anyhow::Result<String> {
+        let key = self
+            .crypto_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Encryption key unavailable"))?;
+        crate::crypto::encrypt(plaintext, key)
+    }
+
+    /// Helper to decrypt using the cached key.
+    pub fn decrypt(&self, stored: &str) -> anyhow::Result<crate::crypto::DecryptResult> {
+        crate::crypto::decrypt(stored, self.crypto_key.as_ref())
     }
 
     /// Marks the app as being in emergency mode.
@@ -248,7 +283,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_state(keychain: KeychainStatus) -> AppState {
-        AppState::new(PathBuf::from("/tmp/chronoward-test"), keychain)
+        AppState::new(PathBuf::from("/tmp/chronoward-test"), keychain, None)
     }
 
     #[test]

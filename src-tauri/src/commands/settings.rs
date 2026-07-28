@@ -16,7 +16,7 @@ use tauri::State;
 use tracing::{debug, info, warn};
 
 use crate::{
-    crypto, guard_write,
+    guard_write,
     state::{AppState, Settings},
 };
 
@@ -60,7 +60,7 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
                 );
                 return Ok(Settings::default());
             }
-            match crypto::decrypt(raw.trim()) {
+            match state.decrypt(raw.trim()) {
                 Ok(result) => {
                     if result.needs_reencrypt() {
                         *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -108,7 +108,7 @@ pub async fn save_settings(
     // keychain, it means keychain became unavailable mid-session — rare but
     // possible. We store plaintext with a warning rather than losing the save.)
     let to_write = if state.keychain_available() {
-        crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt settings: {e}"))?
+        state.encrypt(&json).map_err(|e| format!("Failed to encrypt settings: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_settings — refusing to write unencrypted settings"
