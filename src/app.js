@@ -1162,6 +1162,14 @@ function restoreTimers() {
 }
 
 // ---- Export CSV ----
+function sanitizeCsvCell(val) {
+  let str = String(val || '').replace(/"/g, '""');
+  if (/^[=+\-@]/.test(str)) {
+    str = "'" + str;
+  }
+  return `"${str}"`;
+}
+
 async function exportCSV() {
   saveCurrentSheet();
   const rows    = collectRows();
@@ -1180,16 +1188,16 @@ async function exportCSV() {
   rows.forEach(r => {
     // Initialize the row structure matching the header count/order
     const cols = [];
-    cols.push(`"${(r.task || '').replace(/"/g, '""')}"`);
+    cols.push(sanitizeCsvCell(r.task));
     cols.push(r.hours);
     cols.push(r.ot ? 'Yes' : 'No');
 
     // Dynamically add ticket and description columns in the correct order
     if (hasTicket) {
-      cols.push(`"${(r.ticketNum || '').replace(/"/g, '""')}"`);
+      cols.push(sanitizeCsvCell(r.ticketNum));
     }
     if (hasDesc) {
-      cols.push(`"${(r.description || '').replace(/"/g, '""')}"`);
+      cols.push(sanitizeCsvCell(r.description));
     }
     lines.push(cols.join(','));
   });
