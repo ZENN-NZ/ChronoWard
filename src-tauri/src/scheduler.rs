@@ -135,6 +135,7 @@ async fn tick(
 
 /// Parses "HH:MM" into (hours, minutes) as u32. Returns None on invalid input.
 fn parse_hhmm(s: &str) -> Option<(u32, u32)> {
+    let s = s.trim();
     let mut parts = s.splitn(2, ':');
     let h: u32 = parts.next()?.parse().ok()?;
     let m: u32 = parts.next()?.parse().ok()?;
@@ -159,17 +160,42 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_hhmm_whitespace_handling() {
+        assert_eq!(parse_hhmm(" 09:15 "), Some((9, 15)));
+        assert_eq!(parse_hhmm("\t14:30\n"), Some((14, 30)));
+    }
+
+    #[test]
     fn test_parse_hhmm_invalid() {
         assert_eq!(parse_hhmm("25:00"), None); // hour out of range
         assert_eq!(parse_hhmm("11:60"), None); // minute out of range
         assert_eq!(parse_hhmm("notaTime"), None);
         assert_eq!(parse_hhmm(""), None);
         assert_eq!(parse_hhmm("11"), None); // missing minutes
+        assert_eq!(parse_hhmm("-01:00"), None);
+        assert_eq!(parse_hhmm("12:-05"), None);
+        assert_eq!(parse_hhmm("12.5:30"), None);
     }
 
     #[test]
     fn test_parse_hhmm_boundary() {
         assert_eq!(parse_hhmm("00:01"), Some((0, 1)));
         assert_eq!(parse_hhmm("23:00"), Some((23, 0)));
+    }
+
+    #[test]
+    fn test_triggered_focus_daily_housekeeping() {
+        let mut triggered: HashSet<(i32, u32, u32, u32)> = HashSet::new();
+        // Insert entry from yesterday
+        triggered.insert((2026, 10, 11, 0));
+        // Insert entry from today
+        triggered.insert((2026, 11, 14, 0));
+
+        let current_year = 2026;
+        let current_day = 11;
+        triggered.retain(|(y, d, _, _)| *y == current_year && *d == current_day);
+
+        assert_eq!(triggered.len(), 1);
+        assert!(triggered.contains(&(2026, 11, 14, 0)));
     }
 }
