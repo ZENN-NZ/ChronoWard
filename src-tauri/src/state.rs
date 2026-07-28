@@ -138,6 +138,9 @@ pub struct AppState {
     /// Set by the frontend via `set_warning_active` command, checked by the
     /// scheduler on each tick to decide whether to restore the window.
     pub warning_active: Mutex<bool>,
+
+    /// Async lock to serialize disk writes across async Tauri command handlers.
+    pub write_lock: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -152,6 +155,7 @@ impl AppState {
             settings: Mutex::new(None),
             has_legacy_plaintext: Mutex::new(false),
             warning_active: Mutex::new(false),
+            write_lock: tokio::sync::Mutex::new(()),
         }
     }
 

@@ -67,6 +67,7 @@ pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
 #[tauri::command]
 pub async fn save_timers(timers: Value, state: State<'_, AppState>) -> Result<(), String> {
     guard_write!(state);
+    let _guard = state.write_lock.lock().await;
 
     let json = serde_json::to_string_pretty(&timers)
         .map_err(|e| format!("Failed to serialise timers: {e}"))?;

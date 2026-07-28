@@ -98,6 +98,7 @@ pub async fn save_settings(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     guard_write!(state);
+    let _guard = state.write_lock.lock().await;
 
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialise settings: {e}"))?;

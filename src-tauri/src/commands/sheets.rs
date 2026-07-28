@@ -115,6 +115,7 @@ pub async fn load_sheets(state: State<'_, AppState>) -> Result<Value, String> {
 #[tauri::command]
 pub async fn save_sheets(sheets: Value, state: State<'_, AppState>) -> Result<(), String> {
     guard_write!(state);
+    let _guard = state.write_lock.lock().await;
 
     let json = serde_json::to_string_pretty(&sheets)
         .map_err(|e| format!("Failed to serialise sheets: {e}"))?;
