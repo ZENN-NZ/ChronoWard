@@ -148,21 +148,21 @@ pub fn encrypt(plaintext: &str, key: &SecretVec<u8>) -> Result<String> {
 /// Returns `DecryptResult` to distinguish between "decrypted OK",
 /// "was plaintext — caller should re-encrypt on next save", and "error".
 pub fn decrypt(stored: &str, key: Option<&SecretVec<u8>>) -> Result<DecryptResult> {
-    if let Some(payload) = stored.strip_prefix(PREFIX_KEYCHAIN) {
+    let trimmed = stored.trim();
+    if let Some(payload) = trimmed.strip_prefix(PREFIX_KEYCHAIN) {
         // Primary path: keychain-encrypted data
         let key = key.ok_or_else(|| anyhow!("OS keychain key unavailable for decryption"))?;
         let decrypted = decrypt_enc1(payload, key)?;
         Ok(DecryptResult::Decrypted(decrypted))
-    } else if !stored.is_empty() && !stored.starts_with("enc") {
-        // Legacy plaintext — valid JSON that predates encryption
+    } else if (trimmed.starts_with('{') || trimmed.starts_with('[')) && !trimmed.starts_with("enc") {
+        // Legacy plaintext — valid JSON payload that predates encryption
         warn!("Read unencrypted legacy data — will be encrypted on next save");
         Ok(DecryptResult::WasPlaintext(stored.to_string()))
     } else {
-        // Unknown sentinel — could be a future format we don't understand,
-        // or corrupted data. Fail hard to avoid data loss.
+        // Unknown sentinel or invalid non-JSON payload — fail hard to prevent unauthorized state injection or data corruption
         Err(anyhow!(
-            "Unknown encryption sentinel in stored data. \
-             The data may have been written by a newer version of ChronoWard \
+            "Unknown or invalid encryption sentinel in stored data. \
+             The data may have been written by an incompatible version of ChronoWard \
              or may be corrupt. Refusing to proceed."
         ))
     }
@@ -268,6 +268,13 @@ mod tests {
     #[test]
     fn test_decrypt_rejects_unknown_sentinel() {
         let bad = "enc9:somepayload";
+        let result = decrypt(bad, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_rejects_non_json_unencrypted_payload() {
+        let bad = "arbitrary_unencrypted_junk_string";
         let result = decrypt(bad, None);
         assert!(result.is_err());
     }
