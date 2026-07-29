@@ -11,7 +11,6 @@ const emit = (event, payload) => window.__TAURI__?.event?.emit(event, payload);
 let settings             = {};
 let sheets               = {};
 let timers               = {};
-let activeTimerIntervals = {};
 let currentDate          = '';
 let projectMode          = false;
 let detailedMode           = false;
