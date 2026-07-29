@@ -349,4 +349,37 @@ mod tests {
         assert!(json.contains("WRITE_BLOCKED_EMERGENCY_MODE"));
         assert!(json.contains("keychain locked"));
     }
+
+    #[test]
+    fn test_state_decrypt_blocks_plaintext_downgrade_when_key_preexists() {
+        use secrecy::SecretVec;
+        let key = SecretVec::new(vec![0u8; 32]);
+        let state = AppState::new(
+            PathBuf::from("/tmp/chronoward-test"),
+            KeychainStatus::Available { is_new_key: false },
+            Some(key),
+        );
+        let plaintext_payload = r#"{"2026-07-29": []}"#;
+        let result = state.decrypt(plaintext_payload);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Insecure downgrade attack blocked"));
+    }
+
+    #[test]
+    fn test_state_decrypt_allows_plaintext_migration_when_key_is_new() {
+        use secrecy::SecretVec;
+        let key = SecretVec::new(vec![0u8; 32]);
+        let state = AppState::new(
+            PathBuf::from("/tmp/chronoward-test"),
+            KeychainStatus::Available { is_new_key: true },
+            Some(key),
+        );
+        let plaintext_payload = r#"{"2026-07-29": []}"#;
+        let result = state.decrypt(plaintext_payload).unwrap();
+        assert!(result.needs_reencrypt());
+        assert_eq!(result.into_plaintext(), plaintext_payload);
+    }
 }
