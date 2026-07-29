@@ -2,6 +2,26 @@
 
 ## [2.0.0] - 2026-07-27
 
+### Update — 2026-07-28
+
+#### Security, Concurrency & Data Integrity
+- **CSV Formula Injection Sanitization**: Created `sanitizeCsvCell()` in `utils.js` to neutralize formula triggers (`=`, `+`, `-`, `@`) with a leading single quote `'` before exporting CSV files.
+- **Concurrent Save Race Condition Protection**: Implemented `write_lock: tokio::sync::Mutex<()>` across backend `save_sheets`, `save_timers`, and `save_settings` command handlers to ensure thread-safe disk persistence.
+- **OS Keychain Performance Optimization**: Cached the OS Keychain encryption key in `AppState` using `secrecy::SecretVec<u8>` at startup, eliminating repetitive OS IPC overhead during rapid typing and timer ticks.
+- **Insecure Downgrade Attack Prevention**: Hardened `crypto::decrypt` to strictly validate JSON payload structure (`{` or `[`) for legacy unencrypted data compatibility.
+- **Floating-Point & Math Hardening**: Added non-zero `hourIncrement` validation and applied `Math.round(val * 100) / 100` rounding in `app.js` to eliminate IEEE 754 precision drift.
+
+#### System Hardening & Test Coverage
+- **Orphaned Temp File Purging**: Added background startup cleanup in `lib.rs` to automatically purge `.tmp.*` files older than 1 hour.
+- **Backend Test Suite Expansion**: Added unit tests covering time parsing, boundary cases, whitespace handling, and focus trigger daily housekeeping in `scheduler.rs` (100% of 20 unit tests pass).
+
+#### Modular Frontend Architecture Refactoring
+- **ES6 Module Separation**: Restructured monolithic `app.js` into focused ES6 modules (`utils.js`, `api.js`, `state.js`, `timers.js`).
+- **Reactive State Store & IPC Event Protection**: Built an `EventTarget`-backed reactive store (`state.js`) and centralized Tauri IPC listeners in `api.js`.
+- **Quick Log HUD & Active Timer Sync**: Ensured Quick Log HUD entry additions cleanly sync state and preserve running timer button highlights without DOM thrashing or resetting running intervals.
+
+### Release — 2026-07-27
+
 ### Core Features & Neurodivergent UX
 - **Designed for Focus (ADHD / ASD Support)**: Built ChronoWard's layout specifically to reduce distractions, combat time-blindness, and assist with executive focus and task management.
 - **Quick-Capture HUD (`Ctrl+Shift+Space`)**: Press `Ctrl+Shift+Space` anywhere on your computer to open a pop-up window (`src/hud.html`) and log active tasks in seconds.
