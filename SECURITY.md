@@ -1,43 +1,48 @@
-# Security Policy & Architecture Guide — ChronoWard 2.0
+# Security Architecture & Data Protection Policy — ChronoWard 2.0
 
-## Overview
+## High-Level Overview
 
-ChronoWard is engineered as a **local-first, fully offline computational prosthesis**. Data sovereignty, zero remote telemetry, and hardware-backed encryption at rest are core design requirements. No data is ever transmitted to any external server — all records exist exclusively on your local workstation.
+ChronoWard is engineered as a **local-first, fully offline computational prosthesis**. Data sovereignty, zero telemetry, and hardware-backed encryption at rest are fundamental architectural requirements. No data is ever transmitted to remote servers — all records exist strictly on your local workstation.
 
 ---
 
 ## Security Model & Data Protection
 
-| File | Storage Model | Security Control |
+| Storage File | Protection Model | Encryption Control |
 | :--- | :--- | :--- |
 | `sheets.json` | AES-256-GCM Encrypted | Hardware-backed OS Keychain key (`com.chronoward.app`) |
 | `timers.json` | AES-256-GCM Encrypted | Hardware-backed OS Keychain key (`com.chronoward.app`) |
 | `settings.json` | Plaintext / Encrypted | Stores local user preferences & visual configurations |
 
 ### Encryption Architecture
-- **Algorithm**: AES-256-GCM with a cryptographically secure random 96-bit nonce generated per write (`rand 0.8`).
-- **Key Storage**: OS Native Keychains (Windows DPAPI, macOS Keychain, Linux `libsecret` via `keyring v3`).
-- **Key Isolation**: Master 256-bit encryption keys never touch local disk files. They reside strictly in the OS keychain.
-- **Sentinel Guard**: `enc1:` prefix identifies encrypted file payloads; unrecognized or malformed sentinels are hard-rejected.
-- **Data Directory Access**: On Unix platforms, the data directory (`~/.local/share/ChronoWard/timesheet-data/`) is locked with `0700` permissions (owner-only access).
-- **Atomic Disk Writes**: All saves write to a temporary file (`.tmp`) before atomic rename, preventing partial file corruption.
+- **Authenticated Encryption**: AES-256-GCM with cryptographically secure 96-bit random nonces generated per write transaction.
+- **Hardware Key Storage**: Master 256-bit keys reside in OS keychains (Windows DPAPI, macOS Keychain, Linux `libsecret` via `keyring v3`) and never touch unencrypted disk storage.
+- **Zero-IPC Memory Caching**: Master key is safely cached in application state memory using `secrecy::SecretVec<u8>`, preventing OS IPC overhead during rapid timer ticks and typing.
+- **Payload Sentinel & Guard**: Files use an `enc1:` header sentinel; corrupted or invalid sentinels trigger safe rejection and quarantine.
+- **Unix Permissions**: On Unix systems, data directories (`~/.local/share/ChronoWard/timesheet-data/`) are restricted to `0700` (owner-only access).
 
 ---
 
-## Executive & Enterprise Safety Features (v2.0.0 Updates)
+## Core Security & Concurrency Controls
 
-### 🔒 1. Emergency Read-Only Mode & Lock-Poisoning Prevention
-- **Keychain Unavailability**: If the OS Keychain is unreachable on boot and encrypted files exist, ChronoWard automatically enters **Emergency Read-Only Mode**.
-- **Mid-Session Guardrail**: If Keychain connectivity fails during active usage, `save_sheets` blocks raw plaintext writes to prevent accidental data exposure on disk (`WRITE_BLOCKED_EMERGENCY_MODE`).
-- **Mutex Lock Resilience**: Backend state Mutexes utilize `unwrap_or_else(|e| e.into_inner())` to prevent thread-lock poisoning cascades.
+### 🔒 1. Command-Level Downgrade Attack Prevention
+- **Keychain Initialization Guard**: The Rust backend (`crypto.rs` & `state.rs`) tracks keychain creation state (`is_new_key`).
+- **Strict Downgrade Enforcement**: If an established OS Keychain key exists on the system, loading unencrypted plaintext files is strictly blocked across all storage commands (`load_sheets`, `load_timers`, `load_settings`), neutralizing unauthorized downgrade attacks.
 
-### 🪟 2. Window & IPC Isolation Boundary
-- **Multi-Window Isolation**: The Main Window (`index.html`), Quick Capture HUD (`hud.html`), and Desktop Overlay (`overlay.html`) run in isolated WebView contexts.
-- **Native Shortcut Processing**: System-wide global shortcuts (`Ctrl+Shift+Space`) are registered and handled directly in Rust backend space via `tauri-plugin-global-shortcut`, avoiding webview key-logging risks.
+### 🛡️ 2. File Concurrency & Atomic Writes
+- **Thread-Safe Serialization**: File persistence is governed by an asynchronous write lock (`tokio::sync::Mutex<()>`) in `AppState`, preventing race conditions during simultaneous manual and automatic saves.
+- **Atomic Disk Writes**: Save transactions write to temporary `.tmp` files prior to atomic renaming, preventing partial file corruption.
+- **Orphaned File Purging**: Automatic startup routines clean up leftover temporary files (`.tmp.*`) older than 1 hour.
+- **Corrupt File Quarantine**: Damaged data files are automatically isolated to `<filename>.corrupt.<timestamp>` while preserving safe application recovery.
 
----
+### 📊 3. CSV Formula Injection Neutralization
+- **Export Cell Sanitization**: `sanitizeCsvCell()` inspects export fields for formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) and prepends a single quote `'` to neutralize formula execution in spreadsheet software.
+- **Type Preservation**: Uses nullish coalescing logic to preserve legitimate numeric `0` and boolean `false` values without data loss.
 
-## Content Security Policy (CSP)
+### 🪟 4. Process Isolation & Network Isolation Boundary
+- **Isolated WebViews**: Main Window (`index.html`), Quick Capture HUD (`hud.html`), and Overlay Widget (`overlay.html`) execute in isolated window capability contexts.
+- **Global Shortcuts**: System-wide keybindings (`Ctrl+Shift+Space`) are registered and handled directly in native Rust space via `tauri-plugin-global-shortcut`, avoiding webview key-logging vulnerabilities.
+- **Strict Content Security Policy (CSP)**: `connect-src 'none'` enforces hardware-level webview network isolation, preventing any outbound HTTP or WebSocket transmission.
 
 ```http
 default-src 'self';
@@ -50,37 +55,41 @@ frame-src 'none';
 object-src 'none'
 ```
 
-> **Network Isolation**: `connect-src 'none'` guarantees at the webview level that zero outbound HTTP/WebSocket requests can be initiated.
+---
+
+## Emergency Protections & Error Resiliency
+
+- **Emergency Read-Only Mode**: If the OS Keychain becomes unreachable on boot while encrypted files exist, ChronoWard defaults to **Emergency Read-Only Mode** to protect data.
+- **Mid-Session Protection**: If keychain access fails mid-session, write operations are blocked (`WRITE_BLOCKED_EMERGENCY_MODE`) to prevent unencrypted disk leaks.
+- **Mutex Panic Protection**: State locks utilize safe unwrapping handlers (`unwrap_or_else`) to eliminate thread lock poisoning cascades.
 
 ---
 
-## Threat Model & Security Boundaries
+## Threat Model Summary
 
-### In Scope (Mitigated)
-- **Local Filesystem Access**: Mitigated by AES-256-GCM encryption at rest.
-- **Interrupted / Partial Saves**: Mitigated by atomic write-and-rename mechanics.
-- **Corrupt File Data**: Corrupt files are automatically quarantined to `<filename>.corrupt.<timestamp>`, and empty state recovers safely.
-- **CLI Password Leakage**: Mitigated by automated secret redaction in shell hooks.
-
-### Out of Scope (By Design)
-- **Network Attacks**: Non-existent attack surface (`connect-src 'none'`).
-- **Physical Device Theft**: OS-level full disk encryption (BitLocker / FileVault / LUKS) is recommended.
-- **OS Keychain Compromise**: If the host OS keychain is compromised, all applications storing credentials on that system are compromised.
+| Threat Vector | Mitigation Strategy | Status |
+| :--- | :--- | :--- |
+| **Local Disk Inspection** | AES-256-GCM hardware key encryption at rest | Protected |
+| **Plaintext Downgrade** | Hardware key state checking (`is_new_key`) & command routing | Protected |
+| **Formula Injection** | Automatic CSV field sanitization with formula trigger escaping | Protected |
+| **Save Race Conditions** | Asynchronous mutex serialization write lock | Protected |
+| **Network Data Leaks** | Webview CSP network block (`connect-src 'none'`) | Protected |
+| **Interrupted Disk Writes** | Atomic `.tmp` file write-and-rename pipeline | Protected |
 
 ---
 
 ## Supported Versions
 
-| Version | Status | Security Updates |
+| Version | Status | Security Maintenance |
 | :--- | :--- | :--- |
 | **2.x (Current)** | ✅ Active | Fully Supported |
-| **1.x** | ⚡ Maintenance | Security Patches Only |
-| **< 1.3** | ❌ Deprecated | EOL |
+| **1.x** | ⚡ Maintenance | Critical Security Patches Only |
+| **< 1.3** | ❌ Deprecated | End of Life |
 
 ---
 
 ## Reporting Vulnerabilities
 
-To report a security vulnerability, please submit a report via GitHub's [Security Advisories](../../security/advisories/new) feature or contact the maintainer directly.
+To report a security vulnerability, please open a report via GitHub [Security Advisories](../../security/advisories/new) or contact the project maintainers directly.
 
-Expected initial response time: **48 hours**.
+Initial response SLA: **48 hours**.
