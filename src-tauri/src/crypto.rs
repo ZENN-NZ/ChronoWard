@@ -285,6 +285,13 @@ mod tests {
     }
 
     #[test]
+    fn test_decrypt_rejects_malformed_legacy_json() {
+        let bad_json = r#"{"incomplete_key": "#;
+        let result = decrypt(bad_json, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_decrypt_rejects_truncated_enc1_payload() {
         let bad = "enc1:deadbeefdeadbeef1234";
         let key = SecretVec::new(vec![0u8; 32]);
