@@ -161,7 +161,7 @@ pub fn decrypt(stored: &str, key: Option<&SecretVec<u8>>, is_new_key: bool) -> R
                 "Insecure downgrade attack blocked: Plaintext payload provided while an established OS keychain key is active."
             ));
         }
-        if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        if serde_json::from_str::<serde::de::IgnoredAny>(trimmed).is_ok() {
             warn!("Read unencrypted legacy data — will be encrypted on next save");
             Ok(DecryptResult::WasPlaintext(stored.to_string()))
         } else {

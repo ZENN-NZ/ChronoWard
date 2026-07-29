@@ -34,6 +34,13 @@ export function updateTimerDisplay(timerId, store, updateCleanSlateView) {
   }
 }
 
+export function clearTimerInterval(timerId) {
+  if (activeTimerIntervals[timerId]) {
+    clearInterval(activeTimerIntervals[timerId]);
+    delete activeTimerIntervals[timerId];
+  }
+}
+
 export function toggleTimer(timerId, store, updateCleanSlateView) {
   const timers = store.timers;
   if (!timers[timerId]) {
@@ -44,10 +51,7 @@ export function toggleTimer(timerId, store, updateCleanSlateView) {
     t.elapsed += Date.now() - t.startedAt;
     t.running = false;
     t.startedAt = null;
-    if (activeTimerIntervals[timerId]) {
-      clearInterval(activeTimerIntervals[timerId]);
-      delete activeTimerIntervals[timerId];
-    }
+    clearTimerInterval(timerId);
     updateTimerBtnState(timerId, false);
     const stopBtn = document.getElementById(`timer-stop-${timerId}`);
     if (stopBtn) stopBtn.classList.remove('hidden');
@@ -68,10 +72,7 @@ export function toggleTimer(timerId, store, updateCleanSlateView) {
 }
 
 export function stopTimer(timerId, silent, store, callbacks = {}) {
-  if (activeTimerIntervals[timerId]) {
-    clearInterval(activeTimerIntervals[timerId]);
-    delete activeTimerIntervals[timerId];
-  }
+  clearTimerInterval(timerId);
 
   const timers = store.timers;
   const t = timers[timerId];
