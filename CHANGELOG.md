@@ -5,22 +5,22 @@
 ### Update — 2026-07-29
 
 #### Security, Concurrency & Data Integrity
-- **Legacy Plaintext Decryption Strict JSON Validation**: Hardened `decrypt()` in `crypto.rs` to validate unencrypted legacy strings using `serde_json::from_str` before accepting as legacy data, preventing malformed payloads from bypassing sentinel security checks.
+- **Insecure Downgrade Attack Prevention & Zero-Allocation Validation**: Hardened `decrypt()` and `probe_keychain()` in `crypto.rs` to track OS Keychain key creation state (`is_new_key`), strictly blocking unencrypted plaintext JSON fallbacks when an established key is active to prevent downgrade attacks. Optimized legacy JSON syntax validation to use zero-allocation `serde::de::IgnoredAny` parsing instead of heap-allocating dynamic `serde_json::Value` trees.
 - **CSV Formula Injection Edge Case Neutralization**: Enhanced `sanitizeCsvCell()` in `utils.js` to evaluate formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) against leading-whitespace trimmed values while prepending single quote `'` to the full string, neutralizing formula injection for cells with leading spaces while preserving formatting.
 - **DST / Timezone Boundary Drift Insulation**: Fixed date parsing in `getWeekMonday()`, `dayAbbr()`, and `getWeekdayDates()` in `utils.js` to parse date strings at fixed noon (`T12:00:00`), preventing daylight saving time transitions from causing day-shifting drift across midnight.
 
 #### Architectural Hardening & Memory Management
+- **Configurable Timer Duration Stepping & Precision Protection**: Updated `stopTimer()` in `timers.js` to dynamically apply `store.settings.hourIncrement` rounding while replacing `.toFixed(1)` truncation with `parseFloat((existing + roundedHours).toFixed(3))`, enabling accurate 15-minute (`0.25h`) and 6-minute (`0.1h`) interval logging without float drift.
+- **DRY Timer Interval Teardown**: Extracted `clearTimerInterval(timerId)` helper in `timers.js` and moved handle deletion above state guards, eliminating duplicate interval cleanup logic and preventing interval memory leaks when deleting running timer rows.
 - **Boot State Hydration & Settings Synchronization**: Initialized `store.timers` and `store.settings` in `app.js` during boot and wired reactive `store.on('timers-changed')` and `store.on('settings-changed')` event listeners to ensure state store synchronization across modules.
-- **Configurable Timer Duration Stepping**: Updated `stopTimer()` in `timers.js` to dynamically apply `store.settings.hourIncrement` rounding to stopped timer durations with floating-point precision protection.
-- **Orphaned Timer Interval Teardown**: Moved `clearInterval` and handle deletion in `stopTimer()` above state guards in `timers.js`, eliminating interval memory leaks when deleting running timer rows.
 - **Dead State Removal**: Purged unused module-scoped `activeTimerIntervals` declaration from `app.js`.
 
 #### Non-Destructive Quick Log HUD Synchronization
-- **Full Row Payload Broadcasting**: Updated `hud.html` to broadcast complete task row objects in `hud-entry-added` events.
+- **Zero-I/O HUD Event Decoupling**: Completely removed redundant `load_sheets` and `save_sheets` disk I/O from `commitLog()` in `hud.html`. The HUD now functions as a zero-I/O event emitter broadcasting full task row payloads (`hud-entry-added`), leaving `app.js` as the single source of truth for DOM state and disk persistence, eliminating split-brain race conditions.
 - **Non-Destructive IPC Bridge & Seamless DOM Append**: Removed destructive `loadSheets()` disk-reloads from `api.js` and updated `app.js` to append HUD task rows seamlessly via `addRow()`. Persists combined state immediately, preserving unsaved typing, cursor focus, button event listeners, and `detailedMode` / `projectMode` styling.
 
 #### Test Coverage Expansion
-- **Crypto Unit Test Suite**: Added `test_decrypt_rejects_malformed_legacy_json` in `crypto.rs` (100% of 21 Rust unit tests passing cleanly).
+- **Crypto Unit Test Suite**: Added `test_decrypt_rejects_plaintext_downgrade_when_key_preexists` and `test_decrypt_rejects_malformed_legacy_json` in `crypto.rs` (100% of 22 Rust unit tests passing cleanly).
 
 ### Update — 2026-07-28
 
