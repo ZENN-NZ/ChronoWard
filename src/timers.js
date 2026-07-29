@@ -68,6 +68,11 @@ export function toggleTimer(timerId, store, updateCleanSlateView) {
 }
 
 export function stopTimer(timerId, silent, store, callbacks = {}) {
+  if (activeTimerIntervals[timerId]) {
+    clearInterval(activeTimerIntervals[timerId]);
+    delete activeTimerIntervals[timerId];
+  }
+
   const timers = store.timers;
   const t = timers[timerId];
   if (!t) return;
@@ -75,10 +80,6 @@ export function stopTimer(timerId, silent, store, callbacks = {}) {
     t.elapsed += Date.now() - t.startedAt;
     t.running = false;
     t.startedAt = null;
-    if (activeTimerIntervals[timerId]) {
-      clearInterval(activeTimerIntervals[timerId]);
-      delete activeTimerIntervals[timerId];
-    }
   }
   if (!silent) {
     const totalHoursRaw = t.elapsed / 1000 / 3600;
