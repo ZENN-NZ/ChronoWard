@@ -221,11 +221,19 @@ async function setupEventListeners() {
     timers = newTimers || {};
   });
 
-  store.on('hud-entry-added', () => {
-    sheets = store.sheets;
-    if (currentDate === getTodayString()) {
-      loadSheetForDate(currentDate);
+  store.on('hud-entry-added', (payload) => {
+    if (!payload || !payload.date || !payload.row) return;
+
+    if (currentDate === payload.date) {
+      addRow(payload.row);
+      saveCurrentSheet();
       renderWeeklyCompletion();
+    } else {
+      if (!sheets[payload.date]) sheets[payload.date] = [];
+      sheets[payload.date].push(payload.row);
+      if (!isEmergencyMode) {
+        invoke('save_sheets', { sheets }).catch(console.error);
+      }
     }
   });
 
