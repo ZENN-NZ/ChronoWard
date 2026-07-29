@@ -79,12 +79,8 @@ export async function setupIPCListeners(store, onToast) {
     store.emit('emergency-mode', event.payload);
   });
 
-  await listen('hud-entry-added', async () => {
-    const sheetsResult = await loadSheets();
-    if (sheetsResult && sheetsResult.data) {
-      store.sheets = sheetsResult.data;
-      store.emit('hud-entry-added');
-    }
+  await listen('hud-entry-added', (event) => {
+    store.emit('hud-entry-added', event.payload);
     if (onToast) onToast('⚡ Quick log entry added');
   });
 }
