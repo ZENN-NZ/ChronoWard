@@ -38,16 +38,12 @@ pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
         .await
         .map_err(|e| format!("Failed to read timers.json: {e}"))?;
 
-    let plaintext = if raw.trim_start().starts_with("enc1:") {
-        if !state.keychain_available() {
-            warn!("Timers encrypted but keychain unavailable — returning empty");
+    let plaintext = match state.decrypt(raw.trim()) {
+        Ok(res) => res.into_plaintext(),
+        Err(e) => {
+            warn!("Failed to decrypt timers.json ({e}) — returning empty");
             return Ok(serde_json::json!({}));
         }
-        state.decrypt(raw.trim())
-            .map_err(|e| format!("Failed to decrypt timers.json: {e}"))?
-            .into_plaintext()
-    } else {
-        raw
     };
 
     match serde_json::from_str::<Value>(&plaintext) {
