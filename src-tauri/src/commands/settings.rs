@@ -45,33 +45,17 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
             .await
             .map_err(|e| format!("Failed to read settings.json: {e}"))?;
 
-        // Detect encryption sentinel
-        let plaintext = if raw.trim_start().starts_with("enc1:") {
-            // Encrypted — requires keychain
-            if !state.keychain_available() {
-                // Settings are not encrypted by default on new installs,
-                // but if we find enc1: and the keychain is down, we must
-                // fall back to defaults rather than block startup entirely.
-                // Settings loss is recoverable; timesheet data loss is not.
-                warn!(
-                    "Settings are encrypted but keychain is unavailable — \
-                     using defaults. Settings will NOT be saved until keychain \
-                     is restored."
-                );
+        let plaintext = match state.decrypt(raw.trim()) {
+            Ok(result) => {
+                if result.needs_reencrypt() {
+                    *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                }
+                result.into_plaintext()
+            }
+            Err(e) => {
+                warn!("Failed to decrypt settings.json ({e}) — using defaults");
                 return Ok(Settings::default());
             }
-            match state.decrypt(raw.trim()) {
-                Ok(result) => {
-                    if result.needs_reencrypt() {
-                        *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
-                    }
-                    result.into_plaintext()
-                }
-                Err(e) => return Err(format!("Failed to decrypt settings.json: {e}")),
-            }
-        } else {
-            // Plaintext settings (normal case for settings)
-            raw
         };
 
         serde_json::from_str::<Settings>(&plaintext).unwrap_or_else(|e| {
