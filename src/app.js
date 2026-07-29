@@ -61,7 +61,9 @@ async function init() {
     }
   }
 
-  timers = await invoke('load_timers');
+  const loadedTimers = await invoke('load_timers');
+  store.timers = loadedTimers || {};
+  timers = store.timers;
 
   currentDate = getTodayString();
   document.getElementById('selectedDate').value = currentDate;
@@ -208,6 +210,10 @@ async function setupEventListeners() {
 
   store.on('emergency-mode', (payload) => {
     enterEmergencyMode(payload);
+  });
+
+  store.on('timers-changed', (newTimers) => {
+    timers = newTimers || {};
   });
 
   store.on('hud-entry-added', () => {
