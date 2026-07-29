@@ -1,226 +1,98 @@
 <p align="center">
-<img width="256" height="256" alt="128x128@2x" src="https://github.com/user-attachments/assets/29eeee54-4ac1-4472-9f79-7a1cdb2c4c97" />
+  <img width="140" height="140" alt="ChronoWard Icon" src="https://github.com/user-attachments/assets/29eeee54-4ac1-4472-9f79-7a1cdb2c4c97" />
 </p>
 
-# ChronoWard — Protect your time, meet your goals
+# ChronoWard 2.0 ⏱️
 
-> A secure, fully offline timesheet application — minimal, sleek, and built for neurodivergent workflows.
-
-Refactored and built with **Tauri v2** + **Rust** backend. All data is encrypted at rest using AES-256-GCM with keys stored in the OS keychain (Windows DPAPI / macOS Keychain / Linux libsecret).
-
----
-
-## ✨ Features
-
-### Core
-
-- **10 Themes** — Midnight, Obsidian, Aurora, Ember, Forest, Rose, Steel, Void, Neon, Light
-- **Timesheet columns** — Task | Hours | OT (Overtime toggle)
-- **Detailed Mode** — adds Ticket # and Description columns per row
-- **Project Mode** — per-row digital timers with pause/resume, auto-converts to half-hours on stop
-- **Date-aware** — each date has its own saved sheet, navigable via date picker
-
-### Productivity
-
-- **Focus reminders** — app surfaces to foreground at configurable times (default: 11:00, 14:00, 16:00)
-- **Hours warning** — after a configurable time (default: 16:30), shows a banner and stays on top until minimum hours are met
-- **Idle detection** — auto-minimizes to tray after 1 min of inactivity
-- **Keyboard shortcut** — `Ctrl+N` adds a new row; `Escape` closes modals
-- **Auto-start** — app starts automatically on boot
-
-### Data
-
-- **Export CSV** — saves `timesheet_YYYY-MM-DD.csv`; dynamic columns (Ticket #, Description included only when data present)
-- **Import CSV** — multi-file picker, renders imported rows with Copy and View Description buttons
-- **Row actions** — select-all checkbox, bulk delete, per-row duplicate/delete via `⋮` context menu
-
-### Security
-
-- **AES-256-GCM encryption** at rest for `sheets.json` and `timers.json`
-- **OS keychain** for key storage — survives app reinstalls
-- **Emergency read-only mode** — if keychain is unavailable and encrypted data exists, the app enters read-only mode rather than losing or exposing data
-- **Atomic writes** — all saves use write-to-temp → rename to prevent half-written files
-- **Corrupt data quarantine** — if a data file can't be parsed, it's moved to `*.corrupt.<timestamp>` and the app recovers cleanly
-
-### System Tray
-
-- Closing the window minimizes to tray (never quits)
-- Tray overlay: a floating icon in the top-right corner of the screen when minimized
-- Left-click tray icon or overlay to restore
-- Tray menu: **Open ChronoWard** / **Quit**
+> **A friendly, super simple, zero-stress time tracker built for everyday people and neurodivergent brains (ADHD, ASD, & PDA).**  
+> Protect your time, stay focused, and track your goals without guilt trips, strict bosses, or complicated setups!
 
 ---
 
-## 🚀 Setup
+## 🤔 Why ChronoWard?
 
-### Prerequisites
+Have you ever downloaded a productivity app, used it for a few days, and then forgot it existed? Or opened a time tracker only to feel overwhelmed by endless lists, red warning marks, and broken streak counters?
 
-| Requirement                                                       | Version           |
-| ----------------------------------------------------------------- | ----------------- |
-| [Node.js](https://nodejs.org/)                                    | v18+              |
-| [Rust](https://rustup.rs/)                                        | stable            |
-| [Tauri CLI prerequisites](https://tauri.app/start/prerequisites/) | platform-specific |
+**You’re not alone, and your brain isn't broken.**
 
-> **Windows**: requires WebView2 (included in Windows 11; installer bootstraps it on Windows 10)  
-> **macOS**: requires Xcode Command Line Tools  
-> **Linux**: requires `webkit2gtk`, `libayatana-appindicator` or `libappindicator`, and `libsecret`. For the **Open on Startup** feature to function on Linux, your Desktop Environment or Window Manager must implement the XDG Autostart specification (e.g., GNOME, KDE Plasma, XFCE). The application creates a `.desktop` file in `~/.config/autostart/`.
+Most time trackers are built like strict bosses. They demand your constant attention, spam you with loud alerts, and make you feel guilty when you take a break or miss a day.
 
-### Install & Dev
+**ChronoWard is different.** It works *with* your brain, not against it. It keeps time tracking fast, visual, gentle, and stress-free.
 
+---
+
+## ✨ Features You'll Love
+
+### ⚡ 1. Super-Fast Quick Capture HUD (`Ctrl+Shift+Space`)
+Logging time shouldn't interrupt your focus. Press **`Ctrl+Shift+Space`** anywhere on your computer to open a lightweight pop-up search bar. Type what you're working on, hit `Enter`, and get back to your flow in less than 2 seconds.
+
+### 🍅 2. Pomodoro Focus Mode (Zero Distractions)
+Looking at a long table of 20 tasks can cause instant overwhelm and brain freeze. Click **`🍅 Pomodoro`** mode to hide all background clutter and focus on just one active task card at a time.
+
+### ⭕ 3. Visual Time Ring (See Time Pass)
+Clocks and ticking numbers can feel abstract or stressful. ChronoWard features a smooth **Visual Time Ring** around active timers. As time moves forward, the ring gently shrinks so you can visually sense time passing at a glance.
+
+### 📅 4. Date Range Timesheet Explorer
+Want to see where your time went over the past week or month? The interactive Date Range Explorer lets you review your work with flexible `From` and `To` date pickers, quick presets (`This Week`, `This Month`), summary stats, and easy day-by-day navigation.
+
+### 📌 5. Desktop Overlay & Smart Sizing
+Keep your active timer visible while working in other apps! ChronoWard includes a freestanding desktop overlay widget that stays on screen, supports customizable positions (Top Right, Bottom Left, etc.), and automatically shrinks after 5 seconds of inactivity so it never gets in your way.
+
+### 🎨 6. Weekly Fresh Themes (No Visual Burnout)
+Staring at the exact same screen every single day leads to app fatigue. ChronoWard automatically rotates its visual color theme every **7 days**, keeping your workspace feeling fresh, novel, and fun to use.
+
+### 💬 7. Friendly Reminders & Zero Guilt
+No loud alarms, scary red failure markers, or broken streak penalties. Missing days are simply framed as **Rest & Recharge** periods. Notifications are calm and encouraging so you stay in control of your day.
+
+---
+
+## 🔒 100% Private, Secure & Local-First
+
+- **Stays on Your Workstation**: Your data never leaves your computer. No user accounts, sign-ups, or cloud servers required.
+- **Bank-Grade Encryption**: Protects your log files automatically on disk using AES-256-GCM encryption backed by your computer's native system keychain (Windows DPAPI, macOS Keychain, or Linux libsecret).
+- **Command-Level Protection**: Automatically guards against unauthorized data tampering or downgrade attempts.
+- **Zero Ads, Telemetry, or Tracking**: Fully functional offline without an internet connection.
+
+---
+
+## ⌨️ Easy Keyboard Shortcuts
+
+| Shortcut | What It Does |
+| :--- | :--- |
+| `Ctrl+Shift+Space` | Pop open the Quick Capture HUD from anywhere on your computer |
+| `Ctrl+N` | Add a new task line |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Switch between **Sheet View**, **Import View**, and **Settings** |
+| `Ctrl+Shift+D` | Toggle Detailed Mode (Ticket # & Notes) |
+| `Ctrl+Shift+P` | Toggle Project Mode |
+| `Ctrl+S` | Save your timesheet instantly |
+| `Ctrl+E` | Export your timesheet to a clean CSV spreadsheet |
+| `Alt+Left` / `Alt+Right` | Navigate back or forward a day in your calendar |
+| `Alt+T` | Jump back to Today |
+| `?` | Show interactive keyboard shortcuts guide |
+| `Escape` | Close any open window or pop-up modal |
+
+---
+
+## 💻 How to Run & Build
+
+### System Requirements
+- [Node.js](https://nodejs.org/) (v18 or newer)
+- [Rust](https://rustup.rs/)
+
+### Development Mode
 ```bash
 npm install
 npm run tauri dev
 ```
 
-### Build Distributable
-
+### Production Build
 ```bash
 npm run tauri build
 ```
-
-Outputs are placed in `src-tauri/target/release/bundle/`:
-
-### Additional Icon Generation
-
-```bash
-npm run tauri icon src-tauri/icons/icon.png
-```
-
-| Platform | Format                         |
-| -------- | ------------------------------ |
-| Windows  | `.msi` / NSIS `.exe` installer |
-| macOS    | `.dmg` / `.app`                |
-| Linux    | `.AppImage` / `.deb`           |
+Generates native desktop installers for Windows (`.exe` / `.msi`), macOS (`.dmg`), and Linux (`.AppImage` / `.deb`).
 
 ---
 
-## 📁 Project Structure
+## 📝 License
 
-```
-ChronoWard/
-├── src/                        # Frontend (HTML/CSS/JS — no bundler)
-│   ├── fonts/
-│   │   ├── DMMono-Medium.woff2
-│   │   ├── DMMono-Regular.woff2
-│   │   └── Syne-Variable.woff2
-│   ├── app.js                  # All renderer logic
-│   ├── favicon.ico
-│   ├── icon.png
-│   ├── index.html              # Main window
-│   ├── overlay.html            # Tray overlay window
-│   └── styles.css              # All themes + component styles
-├── src-tauri/
-│   ├── icons/                  # App icons (all sizes)
-│   ├── nsis/                   # Windows installer assets
-│   ├── src/
-│   │   ├── commands/
-│   │   │   ├── mod.rs
-│   │   │   ├── csv.rs          # export_csv, import_csv, get_data_dir
-│   │   │   ├── settings.rs     # load_settings, save_settings
-│   │   │   ├── sheets.rs       # load_sheets, save_sheets
-│   │   │   ├── timers.rs       # load_timers, save_timers
-│   │   │   └── window.rs       # show_window, minimize_to_tray, overlay
-│   │   ├── crypto.rs           # AES-256-GCM + OS keychain
-│   │   ├── lib.rs              # App entry, Tauri setup
-│   │   ├── main.rs             # Binary entry point
-│   │   ├── scheduler.rs        # Focus time + hours warning background task
-│   │   ├── state.rs            # AppState, Settings schema
-│   │   └── tray.rs             # System tray setup
-│   ├── build.rs
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── .gitignore
-├── CHANGELOG.md
-├── README.md
-├── SECURITY.md
-├── package-lock.json
-└── package.json
-```
-
----
-
-## ⚙️ Settings
-
-All configurable from the **Settings** tab in the app:
-
-| Setting               | Default  | Description                                 |
-| --------------------- | -------- | ------------------------------------------- |
-| Theme                 | Midnight | Visual colour theme                         |
-| Hour Increment        | 0.5h     | Step size for ± stepper buttons             |
-| Minimum Hours Warning | 7.5h     | Hours threshold for end-of-day banner       |
-| Warning Trigger Time  | 16:30    | Time after which the hours banner activates |
-| Focus Time 1          | 11:00    | App surfaces to foreground                  |
-| Focus Time 2          | 14:00    | App surfaces to foreground                  |
-| Focus Time 3          | 16:00    | App surfaces to foreground                  |
-| Project Mode          | Off      | Enables per-row timers                      |
-| Detailed Mode         | Off      | Adds Ticket # and Description columns       |
-| Open on Startup       | On       | Starts ChronoWard automatically on boot     |
-
----
-
-## 🔒 Security Model
-
-| Layer                | Implementation                                              |
-| -------------------- | ----------------------------------------------------------- |
-| Encryption           | AES-256-GCM, random 96-bit nonce per write                  |
-| Key storage          | OS keychain (`com.chronoward.app` / `chronoward-data-key`)  |
-| Key format           | 256-bit random, hex-encoded in keychain                     |
-| Sentinel             | `enc1:` prefix on all encrypted files                       |
-| Legacy migration     | Plaintext files detected on load, re-encrypted on next save |
-| Emergency mode       | Read-only if keychain unavailable + encrypted data exists   |
-| Write safety         | Atomic write (`.tmp` → rename)                              |
-| Data dir permissions | `chmod 700` on Unix                                         |
-
-`settings.json` is stored in plaintext by default (no sensitive data) and encrypted after the first save cycle if a keychain key exists.
-
----
-
-## 📝 Data Storage
-
-| OS      | Path                                                       |
-| ------- | ---------------------------------------------------------- |
-| Windows | `%APPDATA%\ChronoWard\timesheet-data\`                     |
-| macOS   | `~/Library/Application Support/ChronoWard/timesheet-data/` |
-| Linux   | `~/.local/share/ChronoWard/timesheet-data/`                |
-
-Files:
-
-| File            | Contents                                  |
-| --------------- | ----------------------------------------- |
-| `sheets.json`   | All timesheet rows, keyed by `YYYY-MM-DD` |
-| `timers.json`   | Timer states (persist across sessions)    |
-| `settings.json` | User preferences                          |
-
----
-
-## 🎨 Themes
-
-| Theme    | Style                         |
-| -------- | ----------------------------- |
-| Midnight | Deep navy, violet accent      |
-| Obsidian | Near-black, blue accent       |
-| Aurora   | Dark ocean, cyan accent       |
-| Ember    | Warm dark, orange accent      |
-| Forest   | Dark green, mint accent       |
-| Rose     | Dark plum, pink accent        |
-| Steel    | Cool dark grey, slate accent  |
-| Void     | Pure black, white accent      |
-| Neon     | Ultra dark, green neon accent |
-| Light    | Clean white, indigo accent    |
-
----
-
-## 🧠 Neurodivergent Features
-
-- **Scheduled focus** — app pops up at key times to prompt logging
-- **Inactivity detection** — auto-minimizes after 1 min idle
-- **End-of-day enforcer** — stays on top until minimum hours are logged
-- **Timer support** — start/pause/stop per task, auto-rounds to nearest 0.5h
-- **Tray persistence** — never fully lost, always one click away
-- **Keyboard shortcut** — `Ctrl+N` for instant row creation
-
----
-
-## 📄 License
-
-MIT — © 2026 Jeremiah Benjamin
+Free and open-source under the [MIT License](LICENSE).

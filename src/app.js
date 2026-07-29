@@ -1,23 +1,22 @@
-// ============================
-// ChronoWard — app.js (Tauri)
-// ============================
-// IPC layer: window.electronAPI → Tauri invoke/listen
-// Uses window.__TAURI__ globals injected by withGlobalTauri: true
-// No bundler or ES module imports needed.
+import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates } from './utils.js';
+import * as api from './api.js';
+import { store } from './state.js';
+import * as timersModule from './timers.js';
 
-const { invoke }        = window.__TAURI__.core;
-const { listen, emit }  = window.__TAURI__.event;
+const invoke = (cmd, args) => window.__TAURI__?.core?.invoke(cmd, args);
+const listen = (event, handler) => window.__TAURI__?.event?.listen(event, handler);
+const emit = (event, payload) => window.__TAURI__?.event?.emit(event, payload);
 
 // ---- State ----
 let settings             = {};
 let sheets               = {};
 let timers               = {};
-let activeTimerIntervals = {};
 let currentDate          = '';
 let projectMode          = false;
 let detailedMode           = false;
 let activeDescTimerId    = null;
 let isEmergencyMode      = false;    // NEW: set true if keychain unavailable
+let isCleanSlateMode     = false;    // Clean Slate Isolation Mode state
 
 let rowCounter      = 0;
 let dataChangeTimer = null;
@@ -35,13 +34,7 @@ const THEMES = [
   { id: 'light',    name: 'Light',    colors: ['#f5f6fa', '#5b6af0', '#d8dae8'] },
 ];
 
-// ---- UUID helper ----
-function generateId() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
-}
+
 
 // ---- Init ----
 async function init() {
@@ -49,7 +42,9 @@ async function init() {
   setupStaticListeners();
   setupEventListeners();
 
-  settings = await invoke('load_settings');
+  const loadedSettings = await invoke('load_settings');
+  store.settings = loadedSettings || {};
+  settings = store.settings;
   const sheetsResult = await invoke('load_sheets');
 
   // Handle emergency mode (Decision 1c-ii)
@@ -67,12 +62,26 @@ async function init() {
     }
   }
 
-  timers = await invoke('load_timers');
+  const loadedTimers = await invoke('load_timers');
+  store.timers = loadedTimers || {};
+  timers = store.timers;
 
   currentDate = getTodayString();
   document.getElementById('selectedDate').value = currentDate;
 
-  applyTheme(settings.theme || 'midnight');
+  const installedAt = settings.installedAt || Date.now();
+  if (!settings.installedAt) {
+    settings.installedAt = installedAt;
+  }
+
+  let activeTheme = settings.theme || 'midnight';
+  if (settings.autoRotateTheme !== false) {
+    const elapsedDays = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24));
+    const themeIndex = Math.floor(elapsedDays / 7) % THEMES.length;
+    activeTheme = THEMES[themeIndex].id;
+  }
+
+  applyTheme(activeTheme);
   renderThemeGrid();
   applySettingsToUI();
 
@@ -158,6 +167,16 @@ function setupStaticListeners() {
   document.getElementById('addRowBtn').addEventListener('click', () => addRow());
   document.getElementById('exportBtn').addEventListener('click', () => exportCSV());
   document.getElementById('deleteSelectedBtn').addEventListener('click', () => deleteCheckedRows());
+  
+  const cleanSlateBtn = document.getElementById('cleanSlateBtn');
+  if (cleanSlateBtn) cleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
+  const exitCleanSlateBtn = document.getElementById('exitCleanSlateBtn');
+  if (exitCleanSlateBtn) exitCleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
+  
+  document.getElementById('cleanSlateTaskSelect')?.addEventListener('change', () => onCleanSlateTaskSelectChange());
+  document.getElementById('cleanSlateStartPauseBtn')?.addEventListener('click', () => cleanSlateToggleTimer());
+  document.getElementById('cleanSlateRingWrap')?.addEventListener('click', () => cleanSlateToggleTimer());
+  document.getElementById('cleanSlateLogBtn')?.addEventListener('click', () => cleanSlateLogFocus());
 
   // Project / Detailed mode toggles
   document.getElementById('projectModeToggle').addEventListener('change', () => toggleProjectMode());
@@ -166,9 +185,11 @@ function setupStaticListeners() {
   // Select all checkbox
   document.getElementById('selectAllCheck').addEventListener('change', (e) => toggleSelectAll(e.target));
 
-  // Import view
-  document.getElementById('importBtn').addEventListener('click', () => importCSV());
-  document.getElementById('clearImportBtn').addEventListener('click', () => clearImportedFiles());
+  // Date Range Timesheet Viewer listeners
+  document.getElementById('rangeFromDate')?.addEventListener('change', () => renderDateRangeTimesheets());
+  document.getElementById('rangeToDate')?.addEventListener('change', () => renderDateRangeTimesheets());
+  document.getElementById('rangeThisWeekBtn')?.addEventListener('click', () => setRangePreset('this-week'));
+  document.getElementById('rangeThisMonthBtn')?.addEventListener('click', () => setRangePreset('this-month'));
 
   // Settings
   document.getElementById('saveSettingsBtn').addEventListener('click', () => saveSettings());
@@ -181,55 +202,45 @@ function setupStaticListeners() {
   document.getElementById('descCloseBtn').addEventListener('click', () => closeDescModal());
 }
 
-// ── Event listeners (replaces electronAPI.on* pattern) ───────────────────────
+// ── Event listeners (centralized via api.js & store) ───────────────────────
 
 async function setupEventListeners() {
-  const { getCurrentWindow } = window.__TAURI__.window;
-  const appWindow = getCurrentWindow();
-
-  // Scheduler → renderer: check if hours warning should show
-  await listen('check-hours-warning', () => {
+  store.on('check-hours-warning', () => {
     if (currentDate === getTodayString()) checkHoursWarning();
   });
 
-  // Scheduler → renderer: focus time triggered (subtle UI indicator)
-  await listen('focus-time-trigger', (event) => {
-    showToast(`⏰ Focus reminder: ${event.payload}`);
+  store.on('emergency-mode', (payload) => {
+    enterEmergencyMode(payload);
   });
 
-  // Main process → renderer: emergency mode activated
-  await listen('emergency-mode', (event) => {
-    enterEmergencyMode(event.payload);
+  store.on('settings-changed', (newSettings) => {
+    settings = newSettings || {};
   });
-}
 
-// ---- Date helpers ----
-function getTodayString() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  store.on('timers-changed', (newTimers) => {
+    timers = newTimers || {};
+  });
+
+  store.on('hud-entry-added', (payload) => {
+    if (!payload || !payload.date || !payload.row) return;
+
+    if (currentDate === payload.date) {
+      addRow(payload.row);
+      saveCurrentSheet();
+      renderWeeklyCompletion();
+    } else {
+      if (!sheets[payload.date]) sheets[payload.date] = [];
+      sheets[payload.date].push(payload.row);
+      if (!isEmergencyMode) {
+        invoke('save_sheets', { sheets }).catch(console.error);
+      }
+    }
+  });
+
+  await api.setupIPCListeners(store, showToast);
 }
 
 // ---- Weekly completion helpers ----
-
-// Get the Monday (start) of the ISO week containing a given date
-function getWeekMonday(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  const day = d.getDay(); // 0=Sun, 1=Mon, ...
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return formatDate(d);
-}
-
-// Format a Date to YYYY-MM-DD
-function formatDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-// Get the day name abbreviation (Mon, Tue, ...)
-function dayAbbr(dateStr) {
-  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  return days[new Date(dateStr + 'T00:00:00').getDay()];
-}
 
 // Compute total hours for a given date from sheets data
 function getDayHours(dateStr) {
@@ -239,18 +250,6 @@ function getDayHours(dateStr) {
     total += r.hours || 0;
   });
   return total;
-}
-
-// Get all weekday date strings (Mon-Fri) for the current week, in order
-function getWeekdayDates(dateStr) {
-  const monday = new Date(getWeekMonday(dateStr) + 'T00:00:00');
-  const dates = [];
-  for (let i = 0; i < 5; i++) {
-    const d = new Date(monday);
-    d.setDate(d.getDate() + i);
-    dates.push(formatDate(d));
-  }
-  return dates;
 }
 
 // Render the weekly completion banner in the footer
@@ -355,6 +354,8 @@ function applySettingsToUI() {
   document.getElementById('settingWarningTime').value     = settings.warningTime     || '16:30';
   document.getElementById('settingAutoStart').checked     = settings.autoStart ?? true;
   document.getElementById('settingOverlayPosition').value = settings.overlayPosition || 'top-right';
+  const autoRotateEl = document.getElementById('settingAutoRotateTheme');
+  if (autoRotateEl) autoRotateEl.checked = settings.autoRotateTheme !== false;
   const ft = settings.focusTimes || ['11:00', '14:00', '16:00'];
   document.getElementById('focusTime1').value = ft[0] || '11:00';
   document.getElementById('focusTime2').value = ft[1] || '14:00';
@@ -369,6 +370,8 @@ async function saveSettings() {
   settings.minHoursWarning = parseFloat(document.getElementById('settingMinHours').value)    || 7.5;
   settings.warningTime     = document.getElementById('settingWarningTime').value             || '16:30';
   settings.overlayPosition = document.getElementById('settingOverlayPosition').value         || 'top-right';
+  const autoRotateEl = document.getElementById('settingAutoRotateTheme');
+  if (autoRotateEl) settings.autoRotateTheme = autoRotateEl.checked;
   settings.focusTimes      = [
     document.getElementById('focusTime1').value || '11:00',
     document.getElementById('focusTime2').value || '14:00',
@@ -385,6 +388,7 @@ async function saveSettings() {
   document.getElementById('detailedModeToggle').checked = detailedMode;
   applyDetailedMode();
 
+  store.settings = settings;
   await invoke('save_settings', { settings });
   showToast('Settings saved ✓');
   checkHoursWarning();
@@ -405,6 +409,7 @@ function switchView(viewId) {
   document.querySelector(`[data-view="${viewId}"]`).classList.add('active');
   if (viewId === 'settings') renderThemeGrid();
   if (viewId === 'timesheet') renderWeeklyCompletion();
+  if (viewId === 'timesheets-view') initDateRangeViewer();
 }
 
 // ---- Project Mode ----
@@ -437,8 +442,8 @@ function applyDetailedMode() {
   document.getElementById('descColHeader').classList.toggle('hidden', !detailedMode);
   document.querySelectorAll('.ticket-col-cell').forEach(c => c.classList.toggle('hidden', !detailedMode));
   document.querySelectorAll('.desc-col-cell').forEach(c => c.classList.toggle('hidden', !detailedMode));
-  const tmHeader = document.getElementById('detailedModeHeaderToggle');
-  if (tmHeader) tmHeader.style.display = '';
+  const tmToggle = document.getElementById('detailedModeSidebarToggle') || document.getElementById('detailedModeHeaderToggle');
+  if (tmToggle) tmToggle.style.display = '';
 }
 
 function syncDetailedModeFromSettings() {
@@ -497,6 +502,7 @@ function loadSheetForDate(date) {
   if (rows.length === 0) addRow();
   else rows.forEach(r => addRow(r));
   updateTotals();
+  restoreTimers();
 }
 
 function saveCurrentSheet() {
@@ -713,13 +719,7 @@ function addRow(data = null, insertAfterEl = null) {
   return tr;
 }
 
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+
 
 function onDataChangeDebounced() {
   clearTimeout(dataChangeTimer);
@@ -731,9 +731,11 @@ function stepHours(timerId, dir) {
   const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
   if (!tr) return;
   const input = tr.querySelector('.hours-input');
-  const inc   = parseFloat(settings.hourIncrement) || 0.5;
-  let val     = parseFloat(input.value) || 0;
+  const rawInc = parseFloat(settings.hourIncrement);
+  const inc    = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
+  let val      = parseFloat(input.value) || 0;
   val = Math.max(0, Math.round((val + dir * inc) / inc) * inc);
+  val = Math.round(val * 100) / 100;
   input.value = parseFloat(val.toFixed(2));
   onDataChange();
   saveCurrentSheet();
@@ -752,16 +754,19 @@ function toggleOT(btn, timerId) {
 function updateTotals() {
   let regular = 0, overtime = 0;
   document.querySelectorAll('#timesheetBody tr').forEach(tr => {
-    const hours = parseFloat(tr.querySelector('.hours-input')?.value) || 0;
+    const hours = Math.round((parseFloat(tr.querySelector('.hours-input')?.value) || 0) * 100) / 100;
     const ot    = tr.querySelector('.ot-toggle')?.classList.contains('active');
     if (ot) overtime += hours;
     else    regular  += hours;
   });
-  const total = regular + overtime;
+  regular  = Math.round(regular * 100) / 100;
+  overtime = Math.round(overtime * 100) / 100;
+  const total = Math.round((regular + overtime) * 100) / 100;
   document.getElementById('regularHours').textContent      = regular.toFixed(1) + 'h';
   document.getElementById('overtimeHours').textContent     = overtime.toFixed(1) + 'h';
   document.getElementById('footerTotal').textContent       = total.toFixed(1) + 'h';
-  document.getElementById('totalHoursDisplay').textContent = total.toFixed(1) + 'h';
+  const totalDisplay = document.getElementById('totalHoursDisplay');
+  if (totalDisplay) totalDisplay.textContent = total.toFixed(1) + 'h';
   emit('hours-updated', { total }).catch(() => {});
   return total;
 }
@@ -851,98 +856,203 @@ function duplicateRow(timerId) {
   saveCurrentSheet();
 }
 
-// ---- Timers ---- (unchanged logic, save via invoke)
+// ---- Timers (decoupled via timers.js) ----
 function toggleTimer(timerId) {
-  if (!timers[timerId]) timers[timerId] = { elapsed: 0, running: false, startedAt: null };
-  const t = timers[timerId];
-  if (t.running) {
-    t.elapsed  += Date.now() - t.startedAt;
-    t.running   = false;
-    t.startedAt = null;
-    clearInterval(activeTimerIntervals[timerId]);
-    delete activeTimerIntervals[timerId];
-    updateTimerBtnState(timerId, false);
-    const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-    if (stopBtn) stopBtn.classList.remove('hidden');
-  } else {
-    t.running   = true;
-    t.startedAt = Date.now();
-    activeTimerIntervals[timerId] = setInterval(() => updateTimerDisplay(timerId), 1000);
-    updateTimerBtnState(timerId, true);
-    const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-    if (stopBtn) stopBtn.classList.add('hidden');
-  }
-  if (!isEmergencyMode) invoke('save_timers', { timers }).catch(console.error);
+  timersModule.toggleTimer(timerId, store, updateCleanSlateView);
 }
 
 function stopTimer(timerId, silent = false) {
-  const t = timers[timerId];
-  if (!t) return;
-  if (t.running) {
-    t.elapsed  += Date.now() - t.startedAt;
-    t.running   = false;
-    t.startedAt = null;
-    clearInterval(activeTimerIntervals[timerId]);
-    delete activeTimerIntervals[timerId];
-  }
-  if (!silent) {
-    const totalHoursRaw = t.elapsed / 1000 / 3600;
-    const roundedHours  = Math.ceil(totalHoursRaw * 2) / 2;
-    const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
-    if (tr) {
-      const input   = tr.querySelector('.hours-input');
-      const existing = parseFloat(input.value) || 0;
-      input.value   = (existing + roundedHours).toFixed(1);
-    }
-  }
-  delete timers[timerId];
-  if (!isEmergencyMode) invoke('save_timers', { timers }).catch(console.error);
-  const display = document.getElementById(`timer-display-${timerId}`);
-  if (display) display.textContent = '00:00:00';
-  const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-  if (stopBtn) stopBtn.classList.add('hidden');
-  updateTimerBtnState(timerId, false);
-  if (!silent) { onDataChange(); saveCurrentSheet(); }
+  timersModule.stopTimer(timerId, silent, store, { onDataChange, saveCurrentSheet });
 }
 
 function updateTimerDisplay(timerId) {
-  const t = timers[timerId];
-  if (!t) return;
-  let elapsed = t.elapsed;
-  if (t.running && t.startedAt) elapsed += Date.now() - t.startedAt;
-  const secs = Math.floor(elapsed / 1000);
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  const display = document.getElementById(`timer-display-${timerId}`);
-  if (display) {
-    display.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  timersModule.updateTimerDisplay(timerId, store, updateCleanSlateView);
+}
+
+let cleanSlateActiveTimerId = 'new';
+
+function toggleCleanSlateMode() {
+  isCleanSlateMode = !isCleanSlateMode;
+  const tableContainer = document.querySelector('.table-container');
+  const tableFooter = document.querySelector('.table-footer');
+  const weeklyCompletion = document.querySelector('.weekly-completion');
+  const cleanSlateContainer = document.getElementById('cleanSlateContainer');
+  const cleanSlateBtn = document.getElementById('cleanSlateBtn');
+
+  if (isCleanSlateMode) {
+    tableContainer?.classList.add('hidden');
+    tableFooter?.classList.add('hidden');
+    weeklyCompletion?.classList.add('hidden');
+    cleanSlateContainer?.classList.remove('hidden');
+    cleanSlateBtn?.classList.add('active');
+    
+    refreshCleanSlateTaskOptions();
+  } else {
+    tableContainer?.classList.remove('hidden');
+    tableFooter?.classList.remove('hidden');
+    weeklyCompletion?.classList.remove('hidden');
+    cleanSlateContainer?.classList.add('hidden');
+    cleanSlateBtn?.classList.remove('active');
   }
 }
 
-function updateTimerBtnState(timerId, running) {
-  const btn = document.querySelector(`.timer-btn[data-timer-id="${timerId}"]`);
-  if (!btn) return;
-  btn.classList.toggle('running', running);
-  btn.setAttribute('aria-label', running ? 'Pause timer' : 'Start timer');
-}
+function refreshCleanSlateTaskOptions() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  if (!select) return;
 
-function restoreTimers() {
-  Object.entries(timers).forEach(([timerId, t]) => {
-    if (t.running) {
-      activeTimerIntervals[timerId] = setInterval(() => updateTimerDisplay(timerId), 1000);
-      updateTimerBtnState(timerId, true);
-      const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-      if (stopBtn) stopBtn.classList.add('hidden');
-    } else if (t.elapsed > 0) {
-      updateTimerDisplay(timerId);
-      const stopBtn = document.getElementById(`timer-stop-${timerId}`);
-      if (stopBtn) stopBtn.classList.remove('hidden');
+  select.innerHTML = '<option value="new">+ Focus on New Unentered Work</option>';
+  
+  const rows = Array.from(document.querySelectorAll('#timesheetBody tr'));
+  let runningTimerId = null;
+
+  rows.forEach((tr, index) => {
+    const timerId = tr.dataset.timerId;
+    const taskText = tr.querySelector('.task-input')?.value.trim();
+    if (taskText) {
+      const opt = document.createElement('option');
+      opt.value = timerId;
+      opt.textContent = `${index + 1}. ${taskText}`;
+      select.appendChild(opt);
+    }
+    if (timerId && timers[timerId]?.running) {
+      runningTimerId = timerId;
     }
   });
+
+  if (runningTimerId) {
+    select.value = runningTimerId;
+    cleanSlateActiveTimerId = runningTimerId;
+  } else if (!cleanSlateActiveTimerId || cleanSlateActiveTimerId === 'new') {
+    select.value = 'new';
+    cleanSlateActiveTimerId = 'new';
+  } else {
+    select.value = cleanSlateActiveTimerId;
+  }
+
+  onCleanSlateTaskSelectChange();
 }
 
-// ---- Export CSV ----
+function onCleanSlateTaskSelectChange() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  const customInput = document.getElementById('cleanSlateCustomInput');
+  const projectSelect = document.getElementById('cleanSlateProjectSelect');
+  const startBtn = document.getElementById('cleanSlateStartPauseBtn');
+  const timerText = document.getElementById('cleanSlateTimerText');
+  const val = select?.value || 'new';
+
+  cleanSlateActiveTimerId = val;
+
+  if (val === 'new') {
+    if (customInput) {
+      customInput.value = '';
+      customInput.placeholder = 'What are you focusing on right now?...';
+    }
+    if (startBtn) startBtn.textContent = '▶ Start Focus';
+    if (timerText) timerText.textContent = '00:00:00';
+    updateSpatialRingOffset(0);
+  } else {
+    const tr = document.querySelector(`tr[data-timer-id="${val}"]`);
+    if (tr) {
+      const rawText = tr.querySelector('.task-input')?.value || '';
+      const match = rawText.match(/^\[(.*?)\]\s*(.*)$/);
+      if (match) {
+        if (projectSelect) projectSelect.value = match[1] || 'General';
+        if (customInput) customInput.value = match[2] || rawText;
+      } else {
+        if (customInput) customInput.value = rawText;
+      }
+    }
+    const isRunning = timers[val]?.running;
+    if (startBtn) startBtn.textContent = isRunning ? '⏸ Pause Focus' : '▶ Start Focus';
+    if (val && timers[val]) {
+      updateTimerDisplay(val);
+    } else {
+      if (timerText) timerText.textContent = '00:00:00';
+      updateSpatialRingOffset(0);
+    }
+  }
+}
+
+function cleanSlateToggleTimer() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  const customInput = document.getElementById('cleanSlateCustomInput');
+  const projectSelect = document.getElementById('cleanSlateProjectSelect');
+  let val = select?.value || 'new';
+
+  if (val === 'new') {
+    const taskDesc = customInput?.value.trim() || 'Focus Session';
+    const proj = projectSelect?.value || 'General';
+    const formattedTask = `[${proj}] ${taskDesc}`;
+
+    // Create a new row in today's sheet
+    const tr = addRow({ task: formattedTask, hours: 0, ot: false });
+    const timerId = tr.dataset.timerId;
+
+    // Start timer on this new row
+    toggleTimer(timerId);
+
+    // Refresh options and select the new timerId
+    cleanSlateActiveTimerId = timerId;
+    refreshCleanSlateTaskOptions();
+    showToast(`⚡ Started focus session for: ${taskDesc}`);
+  } else {
+    toggleTimer(val);
+    const isRunning = timers[val]?.running;
+    const startBtn = document.getElementById('cleanSlateStartPauseBtn');
+    if (startBtn) startBtn.textContent = isRunning ? '⏸ Pause Focus' : '▶ Start Focus';
+  }
+}
+
+function cleanSlateLogFocus() {
+  const select = document.getElementById('cleanSlateTaskSelect');
+  const customInput = document.getElementById('cleanSlateCustomInput');
+  const projectSelect = document.getElementById('cleanSlateProjectSelect');
+  const val = select?.value || 'new';
+
+  if (val === 'new') {
+    const taskDesc = customInput?.value.trim() || 'Focus Session';
+    const proj = projectSelect?.value || 'General';
+    const formattedTask = `[${proj}] ${taskDesc}`;
+
+    addRow({ task: formattedTask, hours: 0.5, ot: false });
+    saveCurrentSheet();
+    showToast('✓ Logged 0.5h to new focus task');
+    refreshCleanSlateTaskOptions();
+  } else {
+    stepHours(val, 1);
+    saveCurrentSheet();
+    showToast('✓ Logged 0.5h to task');
+  }
+}
+
+function updateCleanSlateView(timerId, secs, timeStr) {
+  if (!isCleanSlateMode) return;
+  const select = document.getElementById('cleanSlateTaskSelect');
+  if (select?.value !== timerId) return;
+
+  const cleanSlateTimerText = document.getElementById('cleanSlateTimerText');
+  if (cleanSlateTimerText) cleanSlateTimerText.textContent = timeStr;
+  updateSpatialRingOffset(secs);
+}
+
+function updateSpatialRingOffset(secs) {
+  const spatialRingProgress = document.getElementById('spatialRingProgress');
+  if (spatialRingProgress) {
+    const period = 1800; // 30 minute cycle ring
+    const progress = (secs % period) / period;
+    const offset = 326.72 * (1 - progress);
+    spatialRingProgress.style.strokeDashoffset = offset;
+  }
+}
+
+
+
+function restoreTimers() {
+  timersModule.restoreTimers(store, updateCleanSlateView);
+}
+
+
+
 async function exportCSV() {
   saveCurrentSheet();
   const rows    = collectRows();
@@ -961,16 +1071,16 @@ async function exportCSV() {
   rows.forEach(r => {
     // Initialize the row structure matching the header count/order
     const cols = [];
-    cols.push(`"${(r.task || '').replace(/"/g, '""')}"`);
+    cols.push(sanitizeCsvCell(r.task));
     cols.push(r.hours);
     cols.push(r.ot ? 'Yes' : 'No');
 
     // Dynamically add ticket and description columns in the correct order
     if (hasTicket) {
-      cols.push(`"${(r.ticketNum || '').replace(/"/g, '""')}"`);
+      cols.push(sanitizeCsvCell(r.ticketNum));
     }
     if (hasDesc) {
-      cols.push(`"${(r.description || '').replace(/"/g, '""')}"`);
+      cols.push(sanitizeCsvCell(r.description));
     }
     lines.push(cols.join(','));
   });
@@ -981,100 +1091,224 @@ async function exportCSV() {
   if (result.success) showToast(`Exported ✓`);
 }
 
-// ---- Import CSV ----
-async function importCSV() {
-  const files = await invoke('import_csv');
-  if (!files || files.length === 0) return;
+// ---- Date Range Timesheet Viewer ----
+function initDateRangeViewer() {
+  const fromEl = document.getElementById('rangeFromDate');
+  const toEl = document.getElementById('rangeToDate');
+  if (!fromEl || !toEl) return;
 
-  const container = document.getElementById('importedFiles');
-  container.innerHTML = '';
-  document.getElementById('clearImportBtn').classList.remove('hidden');
+  const today = new Date();
+  const monday = getMondayDate(today);
+  const sunday = getSundayDate(today);
 
-  files.forEach(file => {
-    const rows      = parseCSV(file.content);
-    const hasTicket = rows.some(r => (r.ticketNum || '').trim().length > 0);
-    const hasDesc   = rows.some(r => (r.description || '').trim().length > 0);
+  if (!fromEl.value) fromEl.value = formatDateForInput(monday);
+  if (!toEl.value) toEl.value = formatDateForInput(sunday);
 
-    const card = document.createElement('div');
-    card.className = 'imported-file-card';
-
-    const header = document.createElement('div');
-    header.className = 'file-card-header';
-    const iconSpan  = document.createElement('span'); iconSpan.textContent = '📄';
-    const nameSpan  = document.createElement('span'); nameSpan.className = 'file-card-name'; nameSpan.textContent = file.name;
-    const countSpan = document.createElement('span'); countSpan.style.cssText = 'font-size:11px;color:var(--text-3)'; countSpan.textContent = `${rows.length} rows`;
-    header.appendChild(iconSpan); header.appendChild(nameSpan); header.appendChild(countSpan);
-
-    const table = document.createElement('table');
-    table.className = 'imported-table';
-    const thead = document.createElement('thead');
-    let thHTML = '<tr><th>Task</th><th>Hours</th><th>OT</th>';
-    if (hasTicket) thHTML += '<th>Ticket #</th>';
-    if (hasDesc)   thHTML += '<th>Description</th>';
-    thHTML += '<th>Copy</th></tr>';
-    thead.innerHTML = thHTML;
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    rows.forEach(row => {
-      const tr = document.createElement('tr');
-
-      const tdTask  = document.createElement('td'); tdTask.textContent = row.task || '';
-      const tdHours = document.createElement('td'); tdHours.style.fontFamily = 'var(--font-mono)'; tdHours.textContent = row.hours || 0;
-      const tdOT    = document.createElement('td'); tdOT.textContent = row.ot || 'No';
-      tr.appendChild(tdTask); tr.appendChild(tdHours); tr.appendChild(tdOT);
-
-      if (hasTicket) {
-        const tdTicket = document.createElement('td');
-        tdTicket.style.fontFamily = 'var(--font-mono)';
-        tdTicket.textContent = row.ticketNum || '';
-        tr.appendChild(tdTicket);
-      }
-
-      if (hasDesc) {
-        const tdDesc = document.createElement('td');
-        if ((row.description || '').trim().length > 0) {
-          const descBtn = document.createElement('button');
-          descBtn.className = 'copy-task-btn';
-          descBtn.textContent = '📝 View';
-          descBtn.addEventListener('click', () => {
-            activeDescTimerId = null;
-            document.getElementById('descModalTextarea').value = row.description;
-            document.getElementById('descModal').classList.remove('hidden');
-          });
-          tdDesc.appendChild(descBtn);
-        }
-        tr.appendChild(tdDesc);
-      }
-
-      const tdCopy = document.createElement('td');
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'copy-task-btn';
-      copyBtn.textContent = 'Copy';
-      copyBtn.addEventListener('click', () => copyTaskText(copyBtn, row.task || ''));
-      tdCopy.appendChild(copyBtn);
-      tr.appendChild(tdCopy);
-
-      tbody.appendChild(tr);
-    });
-
-    table.appendChild(tbody);
-    card.appendChild(header);
-    card.appendChild(table);
-    container.appendChild(card);
-  });
+  renderDateRangeTimesheets();
 }
 
-function clearImportedFiles() {
-  const container = document.getElementById('importedFiles');
-  container.innerHTML = `
-    <div class="empty-state">
-      <span class="empty-icon">📂</span>
-      <p>No files imported yet</p>
-      <p class="empty-sub">Click "Import Files" to load CSV timesheets</p>
-    </div>
-  `;
-  document.getElementById('clearImportBtn').classList.add('hidden');
+function getMondayDate(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(date.setDate(diff));
+}
+
+function getSundayDate(d) {
+  const monday = getMondayDate(d);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return sunday;
+}
+
+function formatDateForInput(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function setRangePreset(preset) {
+  const fromEl = document.getElementById('rangeFromDate');
+  const toEl = document.getElementById('rangeToDate');
+  const today = new Date();
+
+  if (preset === 'this-week') {
+    fromEl.value = formatDateForInput(getMondayDate(today));
+    toEl.value = formatDateForInput(getSundayDate(today));
+  } else if (preset === 'this-month') {
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    fromEl.value = formatDateForInput(firstDay);
+    toEl.value = formatDateForInput(lastDay);
+  }
+  renderDateRangeTimesheets();
+}
+
+function renderDateRangeTimesheets() {
+  const fromStr = document.getElementById('rangeFromDate')?.value;
+  const toStr = document.getElementById('rangeToDate')?.value;
+  const container = document.getElementById('rangeResultsContainer');
+  if (!container) return;
+
+  if (!fromStr || !toStr) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🗓️</span>
+        <p>Select a date range to view timesheets</p>
+      </div>`;
+    return;
+  }
+
+  const fromDate = new Date(fromStr + 'T00:00:00');
+  const toDate = new Date(toStr + 'T23:59:59');
+
+  let totalHours = 0;
+  let totalOT = 0;
+  let daysCount = 0;
+  const activeDays = [];
+
+  // Iterate dates
+  const curr = new Date(fromDate);
+  while (curr <= toDate) {
+    const dateStr = formatDateForInput(curr);
+    const dayRows = (sheets[dateStr] || []).filter(r => (r.task || '').trim().length > 0 || r.hours > 0);
+    if (dayRows.length > 0) {
+      let dayReg = 0;
+      let dayOT = 0;
+      dayRows.forEach(r => {
+        const h = parseFloat(r.hours) || 0;
+        if (r.ot) dayOT += h;
+        else dayReg += h;
+      });
+      totalHours += (dayReg + dayOT);
+      totalOT += dayOT;
+      daysCount++;
+      activeDays.push({
+        dateStr,
+        dateObj: new Date(curr),
+        rows: dayRows,
+        regHours: dayReg,
+        otHours: dayOT,
+        totalHours: dayReg + dayOT
+      });
+    }
+    curr.setDate(curr.getDate() + 1);
+  }
+
+  if (activeDays.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🗓️</span>
+        <p>No timesheets logged between ${fromStr} and ${toStr}</p>
+      </div>`;
+    return;
+  }
+
+  let html = `
+    <div class="range-summary-banner">
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Days Logged</span>
+        <span class="range-stat-val">${daysCount} days</span>
+      </div>
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Regular Hours</span>
+        <span class="range-stat-val">${(totalHours - totalOT).toFixed(1)}h</span>
+      </div>
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Overtime Hours</span>
+        <span class="range-stat-val" style="color:var(--ot);">${totalOT.toFixed(1)}h</span>
+      </div>
+      <div class="range-summary-stat">
+        <span class="range-stat-label">Total Range Hours</span>
+        <span class="range-stat-val">${totalHours.toFixed(1)}h</span>
+      </div>
+    </div>`;
+
+  activeDays.forEach(day => {
+    const dayName = day.dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+    html += `
+      <div class="range-day-card">
+        <div class="range-day-header">
+          <div class="range-day-title">
+            <span>📅 ${dayName}</span>
+          </div>
+          <div class="range-day-badges">
+            <span class="range-badge total">${day.totalHours.toFixed(1)}h Total</span>
+            ${day.otHours > 0 ? `<span class="range-badge ot">${day.otHours.toFixed(1)}h OT</span>` : ''}
+            <button class="btn-secondary jump-to-date-btn" data-date="${day.dateStr}" style="padding: 3px 8px; font-size: 11px; margin-left: 6px;">
+              Edit Date ↵
+            </button>
+          </div>
+        </div>
+
+        <table class="range-day-table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th style="width:70px;">Hours</th>
+              <th style="width:50px;">OT</th>
+              <th style="width:100px;">Ticket #</th>
+              <th style="width:90px;text-align:center;">Description</th>
+              <th style="width:65px;text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    day.rows.forEach(r => {
+      const hasDesc = (r.description || '').trim().length > 0;
+      html += `
+        <tr>
+          <td style="font-weight:500;">${escHtml(r.task || '')}</td>
+          <td style="font-family:var(--font-mono);">${r.hours || 0}</td>
+          <td>${r.ot ? '<span style="color:var(--ot);font-weight:600;">Yes</span>' : 'No'}</td>
+          <td style="font-family:var(--font-mono);">${escHtml(r.ticketNum || '')}</td>
+          <td style="text-align:center;">
+            ${hasDesc ? `<button class="desc-btn has-desc open-range-desc-btn" data-desc="${escHtml(r.description)}" title="View Description" style="margin: 0 auto;">📝</button>` : '<span style="color:var(--text-3); font-size:11px;">—</span>'}
+          </td>
+          <td style="text-align:center;">
+            <button class="btn-secondary range-copy-task-btn" data-task="${escHtml(r.task || '')}" style="padding: 3px 8px; font-size: 11px;">Copy</button>
+          </td>
+        </tr>`;
+    });
+
+    html += `
+          </tbody>
+        </table>
+      </div>`;
+  });
+
+  container.innerHTML = html;
+
+  // Bind Jump to Date buttons
+  container.querySelectorAll('.jump-to-date-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const date = btn.dataset.date;
+      currentDate = date;
+      document.getElementById('selectedDate').value = date;
+      loadSheetForDate(date);
+      switchView('timesheet');
+    });
+  });
+
+  // Bind Description View buttons
+  container.querySelectorAll('.open-range-desc-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeDescTimerId = null;
+      document.getElementById('descModalTextarea').value = btn.dataset.desc || '';
+      document.getElementById('descModal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('descModalTextarea').focus(), 50);
+    });
+  });
+
+  // Bind Copy Task buttons
+  container.querySelectorAll('.range-copy-task-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const taskText = btn.dataset.task || '';
+      navigator.clipboard.writeText(taskText).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      });
+    });
+  });
 }
 
 function showImportedDesc(btn, text) {
@@ -1175,7 +1409,7 @@ function showBanner(current, required) {
   const banner  = document.getElementById('hoursWarningBanner');
   const reqText = banner.querySelector('.banner-text');
   if (reqText) {
-    reqText.innerHTML = `You need to log at least <strong>${required}hrs</strong> before end of day — currently at <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h`;
+    reqText.innerHTML = `Daily tracking status: <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h logged towards <strong id="bannerTargetHours">${required}</strong>h target`;
   }
   banner.classList.remove('hidden');
   invoke('set_warning_active', { active: true }).catch(() => {});
@@ -1364,4 +1598,8 @@ function showToast(msg, duration = 2500) {
 }
 
 // ---- Start ----
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}

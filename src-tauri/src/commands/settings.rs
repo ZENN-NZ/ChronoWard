@@ -16,7 +16,7 @@ use tauri::State;
 use tracing::{debug, info, warn};
 
 use crate::{
-    crypto, guard_write,
+    guard_write,
     state::{AppState, Settings},
 };
 
@@ -45,33 +45,17 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
             .await
             .map_err(|e| format!("Failed to read settings.json: {e}"))?;
 
-        // Detect encryption sentinel
-        let plaintext = if raw.trim_start().starts_with("enc1:") {
-            // Encrypted — requires keychain
-            if !state.keychain_available() {
-                // Settings are not encrypted by default on new installs,
-                // but if we find enc1: and the keychain is down, we must
-                // fall back to defaults rather than block startup entirely.
-                // Settings loss is recoverable; timesheet data loss is not.
-                warn!(
-                    "Settings are encrypted but keychain is unavailable — \
-                     using defaults. Settings will NOT be saved until keychain \
-                     is restored."
-                );
+        let plaintext = match state.decrypt(raw.trim()) {
+            Ok(result) => {
+                if result.needs_reencrypt() {
+                    *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                }
+                result.into_plaintext()
+            }
+            Err(e) => {
+                warn!("Failed to decrypt settings.json ({e}) — using defaults");
                 return Ok(Settings::default());
             }
-            match crypto::decrypt(raw.trim()) {
-                Ok(result) => {
-                    if result.needs_reencrypt() {
-                        *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
-                    }
-                    result.into_plaintext()
-                }
-                Err(e) => return Err(format!("Failed to decrypt settings.json: {e}")),
-            }
-        } else {
-            // Plaintext settings (normal case for settings)
-            raw
         };
 
         serde_json::from_str::<Settings>(&plaintext).unwrap_or_else(|e| {
@@ -98,6 +82,7 @@ pub async fn save_settings(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     guard_write!(state);
+    let _guard = state.write_lock.lock().await;
 
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialise settings: {e}"))?;
@@ -107,7 +92,7 @@ pub async fn save_settings(
     // keychain, it means keychain became unavailable mid-session — rare but
     // possible. We store plaintext with a warning rather than losing the save.)
     let to_write = if state.keychain_available() {
-        crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt settings: {e}"))?
+        state.encrypt(&json).map_err(|e| format!("Failed to encrypt settings: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_settings — refusing to write unencrypted settings"

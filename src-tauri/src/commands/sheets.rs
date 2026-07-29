@@ -19,7 +19,7 @@ use serde_json::Value;
 use tauri::State;
 use tracing::{error, info, warn};
 
-use crate::{commands::settings::atomic_write, crypto, guard_write, state::AppState};
+use crate::{commands::settings::atomic_write, guard_write, state::AppState};
 
 /// Loads all timesheet data from disk.
 ///
@@ -52,38 +52,22 @@ pub async fn load_sheets(state: State<'_, AppState>) -> Result<Value, String> {
         .await
         .map_err(|e| format!("Failed to read sheets.json: {e}"))?;
 
-    // Decrypt if necessary
-    let plaintext = if raw.trim_start().starts_with("enc1:") {
-        // Should not reach here in emergency mode (guarded above), but be safe.
-        if !state.keychain_available() {
+    // Decrypt stored payload via crypto layer
+    let plaintext = match state.decrypt(raw.trim()) {
+        Ok(result) => {
+            if result.needs_reencrypt() {
+                *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            }
+            result.into_plaintext()
+        }
+        Err(e) => {
+            error!("Failed to decrypt sheets.json: {e}");
             return Ok(serde_json::json!({
                 "ok": false,
-                "code": "EMERGENCY_MODE",
-                "reason": "Sheets are encrypted but the OS keychain is unavailable.",
-                "encryptedDataExists": true,
+                "code": "DECRYPT_FAILED",
+                "reason": e.to_string(),
             }));
         }
-        match crypto::decrypt(raw.trim()) {
-            Ok(result) => {
-                if result.needs_reencrypt() {
-                    *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
-                }
-                result.into_plaintext()
-            }
-            Err(e) => {
-                error!("Failed to decrypt sheets.json: {e}");
-                return Ok(serde_json::json!({
-                    "ok": false,
-                    "code": "DECRYPT_FAILED",
-                    "reason": e.to_string(),
-                }));
-            }
-        }
-    } else {
-        // Plaintext (legacy migration path)
-        warn!("sheets.json is unencrypted — will encrypt on next save");
-        *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
-        raw
     };
 
     // Parse JSON — quarantine if corrupt
@@ -115,12 +99,13 @@ pub async fn load_sheets(state: State<'_, AppState>) -> Result<Value, String> {
 #[tauri::command]
 pub async fn save_sheets(sheets: Value, state: State<'_, AppState>) -> Result<(), String> {
     guard_write!(state);
+    let _guard = state.write_lock.lock().await;
 
     let json = serde_json::to_string_pretty(&sheets)
         .map_err(|e| format!("Failed to serialise sheets: {e}"))?;
 
     let to_write = if state.keychain_available() {
-        crypto::encrypt(&json).map_err(|e| format!("Failed to encrypt sheets: {e}"))?
+        state.encrypt(&json).map_err(|e| format!("Failed to encrypt sheets: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_sheets — refusing to write unencrypted data"

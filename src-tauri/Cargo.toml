@@ -1,6 +1,6 @@
 [package]
 name = "chronoward-lib"
-version = "1.3.5"
+version = "2.0.0"
 edition = "2021"
 description = "ChronoWard — Protect your time, meet your goals"
 authors = ["Jeremiah Benjamin"]
@@ -24,6 +24,7 @@ tauri = { version = "2.11", features = [
 ] }
 tauri-plugin-dialog = "2.7"
 tauri-plugin-autostart = "2.5"
+tauri-plugin-global-shortcut = "2"
 
 # ── Serialisation ─────────────────────────────────────────────────────────────
 serde       = { version = "1", features = ["derive"] }
@@ -42,6 +43,7 @@ rand    = "0.8"
 
 # ── Hex encoding for keychain key storage ────────────────────────────────────
 hex = "0.4"
+secrecy = "0.8"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 tracing             = "0.1"

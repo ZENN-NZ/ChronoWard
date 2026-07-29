@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChronoWard Quick Capture HUD</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      background: transparent !important;
+      overflow: hidden;
+      font-family: 'DM Mono', monospace, system-ui;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .hud-card {
+      width: calc(100vw - 20px);
+      height: calc(100vh - 20px);
+      margin: 10px auto;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.15);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 20px;
+      color: #f8fafc;
+      box-sizing: border-box;
+      gap: 12px;
+    }
+
+    .hud-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #94a3b8;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 8px;
+    }
+
+    .hud-title-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #818cf8;
+      font-weight: 600;
+    }
+
+    .hud-shortcut-hint {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      color: #cbd5e1;
+    }
+
+    .hud-body {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .hud-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .hud-input {
+      flex: 1;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #f8fafc;
+      font-family: inherit;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .hud-input:focus {
+      border-color: #818cf8;
+      box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.25);
+    }
+
+    .hud-select {
+      width: 150px;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 8px;
+      padding: 10px;
+      color: #f8fafc;
+      font-family: inherit;
+      font-size: 0.85rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .hud-hours-input {
+      width: 80px;
+      text-align: center;
+    }
+
+    .hud-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
+    .hud-btn-primary {
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+      transition: transform 0.1s, opacity 0.15s;
+    }
+
+    .hud-btn-primary:active {
+      transform: scale(0.97);
+    }
+  </style>
+</head>
+<body>
+  <div class="hud-card">
+    <div class="hud-header">
+      <div class="hud-title-badge">
+        <span>⚡ ChronoWard Quick Log</span>
+      </div>
+      <div class="hud-shortcut-hint">[Ctrl+Shift+Space] • [Enter] to commit • [Esc] to close</div>
+    </div>
+
+    <div class="hud-body">
+      <div class="hud-input-row">
+        <input type="text" id="taskInput" class="hud-input" placeholder="What are you working on right now?..." autofocus />
+      </div>
+
+      <div class="hud-input-row">
+        <select id="projectSelect" class="hud-select">
+          <option value="General">General</option>
+          <option value="Development">Development</option>
+          <option value="Research">Research</option>
+          <option value="Design">Design</option>
+          <option value="Admin">Admin</option>
+        </select>
+
+        <input type="text" id="ticketInput" class="hud-input" placeholder="Ticket # (opt)" style="width: 120px; text-transform: uppercase;" />
+
+        <input type="number" id="hoursInput" class="hud-input hud-hours-input" value="0.5" step="0.5" min="0.1" max="24" title="Hours" />
+        <span style="font-size:0.85rem; color:#94a3b8;">hours</span>
+
+        <div style="flex:1;"></div>
+
+        <button id="commitBtn" class="hud-btn-primary">Log Activity ↵</button>
+      </div>
+    </div>
+
+    <div class="hud-footer">
+      <span>Zero-Friction Executive Capture</span>
+      <span id="statusMessage" style="color:#38bdf8;">Ready</span>
+    </div>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { listen, emit } = window.__TAURI__.event;
+
+    const taskInput = document.getElementById('taskInput');
+    const projectSelect = document.getElementById('projectSelect');
+    const ticketInput = document.getElementById('ticketInput');
+    const hoursInput = document.getElementById('hoursInput');
+    const commitBtn = document.getElementById('commitBtn');
+    const statusMessage = document.getElementById('statusMessage');
+
+    function getTodayString() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    async function commitLog() {
+      const task = taskInput.value.trim();
+      const project = projectSelect.value;
+      const ticketNum = ticketInput.value.trim().toUpperCase();
+      const hours = parseFloat(hoursInput.value) || 0.5;
+
+      if (!task) {
+        statusMessage.textContent = 'Please enter a task description';
+        statusMessage.style.color = '#f87171';
+        taskInput.focus();
+        return;
+      }
+
+      statusMessage.textContent = 'Saving...';
+      statusMessage.style.color = '#38bdf8';
+
+      try {
+        const todayStr = getTodayString();
+        const newRow = {
+          timerId: 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          task: `[${project}] ${task}`,
+          hours: hours,
+          ot: false,
+          ticketNum: ticketNum,
+          description: ''
+        };
+
+        // Notify main window via frontend event with payload (app.js handles persistence)
+        await emit('hud-entry-added', { date: todayStr, row: newRow });
+
+        // Reset & dismiss
+        taskInput.value = '';
+        ticketInput.value = '';
+        statusMessage.textContent = 'Logged!';
+        setTimeout(async () => {
+          await invoke('hide_hud_cmd');
+          statusMessage.textContent = 'Ready';
+        }, 300);
+
+      } catch (err) {
+        console.error('HUD Commit Error:', err);
+        const errMsg = typeof err === 'string' ? err : (err.message || JSON.stringify(err));
+        statusMessage.textContent = `Failed: ${errMsg}`;
+        statusMessage.style.color = '#f87171';
+      }
+    }
+
+    commitBtn.addEventListener('click', commitLog);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        commitLog();
+      } else if (e.key === 'Escape') {
+        invoke('hide_hud_cmd').catch(console.error);
+      }
+    });
+
+    listen('hud-opened', () => {
+      taskInput.value = '';
+      ticketInput.value = '';
+      statusMessage.textContent = 'Ready';
+      statusMessage.style.color = '#38bdf8';
+      setTimeout(() => taskInput.focus(), 50);
+    });
+  </script>
+</body>
+</html>

@@ -18,8 +18,8 @@
 
   <!-- Hours Warning Banner -->
   <div id="hoursWarningBanner" class="hours-banner hidden">
-    <span class="banner-icon">⚠️</span>
-    <span class="banner-text">You need to log at least <strong>7.5 hours</strong> before end of day — currently at <strong id="bannerCurrentHours">0</strong>h</span>
+    <span class="banner-icon">ℹ️</span>
+    <span class="banner-text">Daily tracking status: <strong id="bannerCurrentHours">0</strong>h logged towards <strong id="bannerTargetHours">7.5</strong>h target</span>
   </div>
 
   <div class="app-container">
@@ -35,21 +35,42 @@
           <span class="nav-icon">📋</span>
           <span>Sheet</span>
         </button>
-        <button class="nav-btn" data-view="import">
-          <span class="nav-icon">📂</span>
-          <span>Import</span>
+        <button class="nav-btn" data-view="timesheets-view">
+          <span class="nav-icon">🗓️</span>
+          <span>View Timesheets</span>
         </button>
         <button class="nav-btn" data-view="settings">
           <span class="nav-icon">⚙️</span>
           <span>Settings</span>
         </button>
+
+        <div class="sidebar-mode-switches">
+          <div class="sidebar-switch-row">
+            <span class="switch-label">Project Mode</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="projectModeToggle" />
+              <span class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </span>
+            </label>
+          </div>
+
+          <div class="sidebar-switch-row" id="detailedModeSidebarToggle" style="display:none;">
+            <span class="switch-label">Detailed Mode</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="detailedModeToggle" />
+              <span class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </span>
+            </label>
+          </div>
+        </div>
       </nav>
 
       <div class="sidebar-bottom">
-        <div class="total-display">
-          <span class="total-label">TOTAL</span>
-          <span class="total-hours" id="totalHoursDisplay">0.0h</span>
-        </div>
+        <button class="sidebar-clean-slate-btn" id="cleanSlateBtn" title="Toggle Pomodoro Focus Mode">
+          <span>🍅 Pomodoro</span>
+        </button>
       </div>
     </aside>
 
@@ -73,27 +94,7 @@
               <span class="selection-count" id="selectionCount">0 selected</span>
               <button class="btn-danger" id="deleteSelectedBtn">🗑 Delete</button>
             </div>
-            
-            <div class="project-mode-toggle">
-              <span class="toggle-label">Project Mode</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="projectModeToggle" />
-                <span class="toggle-track">
-                  <span class="toggle-thumb"></span>
-                </span>
-              </label>
-            </div>
 
-            <div class="project-mode-toggle" id="detailedModeHeaderToggle" style="display:none;">
-              <span class="toggle-label">Detailed Mode</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="detailedModeToggle" />
-                <span class="toggle-track">
-                  <span class="toggle-thumb"></span>
-                </span>
-              </label>
-            </div>
-            
             <button class="btn-primary" id="addRowBtn" title="Add Row (Ctrl+N)">
               <span>+ Add Row</span>
             </button>
@@ -105,6 +106,53 @@
             <button class="btn-icon-help" id="shortcutsBtn" title="Keyboard Shortcuts (?)">
               <span>❓</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Clean Slate Isolation View Container -->
+        <div id="cleanSlateContainer" class="clean-slate-container hidden">
+          <div class="clean-slate-card">
+            <div class="clean-slate-header">
+              <span class="clean-slate-tag">POMODORO FOCUS MODE</span>
+              <button class="btn-secondary" id="exitCleanSlateBtn" style="padding: 4px 10px; font-size: 12px;">Exit Pomodoro ✕</button>
+            </div>
+
+            <div class="clean-slate-body">
+              <!-- Task Selection & Custom Input -->
+              <div class="clean-slate-selector-wrap" style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <select id="cleanSlateTaskSelect" class="setting-select" style="flex: 1; padding: 6px 10px; font-size: 12px;">
+                    <option value="new">+ Focus on New Unentered Work</option>
+                  </select>
+                  <select id="cleanSlateProjectSelect" class="setting-select" style="width: 130px; padding: 6px 10px; font-size: 12px;">
+                    <option value="General">General</option>
+                    <option value="Development">Development</option>
+                    <option value="Research">Research</option>
+                    <option value="Design">Design</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+                <input type="text" id="cleanSlateCustomInput" class="clean-slate-input" placeholder="What are you focusing on right now?..." />
+              </div>
+
+              <!-- Spatial ring timer -->
+              <div class="spatial-ring-wrap" id="cleanSlateRingWrap" title="Click to Start/Pause Focus Timer" style="cursor: pointer; margin: 12px 0;">
+                <svg class="spatial-ring" viewBox="0 0 120 120">
+                  <circle class="ring-bg" cx="60" cy="60" r="52" />
+                  <circle class="ring-progress" id="spatialRingProgress" cx="60" cy="60" r="52" />
+                </svg>
+                <div class="ring-timer-text" id="cleanSlateTimerText">00:00:00</div>
+              </div>
+
+              <div class="clean-slate-action-row" style="display: flex; gap: 12px;">
+                <button class="btn-primary" id="cleanSlateStartPauseBtn">▶ Start Focus</button>
+                <button class="btn-secondary" id="cleanSlateLogBtn">✓ Log to Sheet</button>
+              </div>
+            </div>
+
+            <div class="clean-slate-footer">
+              <span style="font-size: 12px; color: var(--text-3);">Single-Task Isolation Layer • Zero Distraction</span>
+            </div>
           </div>
         </div>
 
@@ -165,32 +213,32 @@
         </div>
       </section>
 
-      <!-- ===== IMPORT VIEW ===== -->
-      <section class="view" id="view-import">
+      <!-- ===== VIEW TIMESHEETS VIEW ===== -->
+      <section class="view" id="view-timesheets-view">
         <div class="view-header">
-          
           <div class="header-left">
-            <h1 class="view-title">Import CSV</h1>
+            <h1 class="view-title">View Timesheets</h1>
           </div>
 
-          <div class="header-right">
-            <button class="btn-secondary hidden" id="clearImportBtn" style="margin-right:8px;">
-              <span>✕ Clear Results</span>
-            </button>
-            <button class="btn-primary" id="importBtn">
-              <span>↓ Import Files</span>
-            </button>
+          <div class="header-right" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <label style="font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 4px;">
+              From:
+              <input type="date" id="rangeFromDate" class="date-input" style="padding: 4px 8px;" />
+            </label>
+            <label style="font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 4px;">
+              To:
+              <input type="date" id="rangeToDate" class="date-input" style="padding: 4px 8px;" />
+            </label>
+            <button class="btn-secondary" id="rangeThisWeekBtn" style="padding: 4px 10px; font-size: 12px;">This Week</button>
+            <button class="btn-secondary" id="rangeThisMonthBtn" style="padding: 4px 10px; font-size: 12px;">This Month</button>
           </div>
-
         </div>
-        <div id="importedFiles" class="imported-files-container">
-          
-          <div class="empty-state">
-            <span class="empty-icon">📂</span>
-            <p>No files imported yet</p>
-            <p class="empty-sub">Click "Import Files" to load CSV timesheets</p>
-          </div>
 
+        <div id="rangeResultsContainer" class="imported-files-container" style="padding: 20px; overflow-y: auto; flex: 1;">
+          <div class="empty-state">
+            <span class="empty-icon">🗓️</span>
+            <p>Select a date range to view timesheets</p>
+          </div>
         </div>
       </section>
 
@@ -226,6 +274,18 @@
                 <option value="center-left">Center Left</option>
                 <option value="bottom-left">Bottom Left</option>
               </select>
+            </div>
+            <div class="setting-row" style="margin-top: 16px;">
+              <div>
+                <label class="setting-label">Auto-Rotate Theme (Habituation Defense)</label>
+                <p class="settings-help">Shifts visual theme weekly (every 7 days) to defeat workspace blindness.</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingAutoRotateTheme" checked />
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+              </label>
             </div>
           </div>
 
@@ -308,7 +368,7 @@
     </main>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 
   <div id="descModal" class="desc-modal-backdrop hidden">
     <div class="desc-modal">
@@ -333,6 +393,7 @@
       <div class="shortcuts-modal-body">
         <div class="shortcuts-group">
           <div class="shortcuts-group-title">Timesheet Actions</div>
+          <div class="shortcut-row"><span class="shortcut-desc">Open Quick Capture HUD</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd></div></div>
           <div class="shortcut-row"><span class="shortcut-desc">Add new task row</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>N</kbd></div></div>
           <div class="shortcut-row"><span class="shortcut-desc">Export CSV</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>E</kbd></div></div>
           <div class="shortcut-row"><span class="shortcut-desc">Save sheet to disk</span><div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>S</kbd></div></div>

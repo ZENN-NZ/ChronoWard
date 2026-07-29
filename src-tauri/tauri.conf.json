@@ -1,6 +1,6 @@
 {
   "productName": "ChronoWard",
-  "version": "1.3.5",
+  "version": "2.0.0",
   "identifier": "com.chronoward.desktop",
 
   "build": {
@@ -44,6 +44,20 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "url": "overlay.html"
+      },
+      {
+        "label": "hud",
+        "title": "ChronoWard Quick Log HUD",
+        "width": 640,
+        "height": 320,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true,
+        "url": "hud.html"
       }
     ]
   },

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "hud-capability",
+  "description": "Permissions for the HUD window",
+  "windows": ["hud"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-emit"
+  ]
+}

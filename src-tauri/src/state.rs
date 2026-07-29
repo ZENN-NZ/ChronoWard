@@ -14,6 +14,7 @@
 ///     layers. AppState is pure in-memory cache + metadata.
 use std::{path::PathBuf, sync::Mutex};
 
+use secrecy::SecretVec;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -53,6 +54,16 @@ pub struct Settings {
 
     #[serde(default = "default_overlay_position")]
     pub overlay_position: String,
+
+    #[serde(default = "default_auto_rotate_theme")]
+    pub auto_rotate_theme: bool,
+
+    #[serde(default)]
+    pub installed_at: Option<u64>,
+}
+
+fn default_auto_rotate_theme() -> bool {
+    true
 }
 
 fn default_overlay_position() -> String {
@@ -95,6 +106,8 @@ impl Default for Settings {
             min_hours_warning: default_min_hours_warning(),
             auto_start: default_auto_start(),
             overlay_position: default_overlay_position(),
+            auto_rotate_theme: default_auto_rotate_theme(),
+            installed_at: None,
         }
     }
 }
@@ -138,12 +151,22 @@ pub struct AppState {
     /// Set by the frontend via `set_warning_active` command, checked by the
     /// scheduler on each tick to decide whether to restore the window.
     pub warning_active: Mutex<bool>,
+
+    /// Async lock to serialize disk writes across async Tauri command handlers.
+    pub write_lock: tokio::sync::Mutex<()>,
+
+    /// Cached encryption key retrieved from OS keychain at startup.
+    pub crypto_key: Option<SecretVec<u8>>,
 }
 
 impl AppState {
     /// Constructs the initial state. Called from `lib.rs` during app setup
     /// before any windows open, so keychain probe happens before any UI.
-    pub fn new(data_dir: PathBuf, keychain_status: KeychainStatus) -> Self {
+    pub fn new(
+        data_dir: PathBuf,
+        keychain_status: KeychainStatus,
+        crypto_key: Option<SecretVec<u8>>,
+    ) -> Self {
         debug!("AppState::new — data_dir: {:?}", data_dir);
         Self {
             data_dir,
@@ -152,7 +175,27 @@ impl AppState {
             settings: Mutex::new(None),
             has_legacy_plaintext: Mutex::new(false),
             warning_active: Mutex::new(false),
+            write_lock: tokio::sync::Mutex::new(()),
+            crypto_key,
         }
+    }
+
+    /// Helper to encrypt using the cached key.
+    pub fn encrypt(&self, plaintext: &str) -> anyhow::Result<String> {
+        let key = self
+            .crypto_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Encryption key unavailable"))?;
+        crate::crypto::encrypt(plaintext, key)
+    }
+
+    /// Helper to decrypt using the cached key.
+    pub fn decrypt(&self, stored: &str) -> anyhow::Result<crate::crypto::DecryptResult> {
+        let is_new_key = matches!(
+            self.keychain_status,
+            KeychainStatus::Available { is_new_key: true }
+        );
+        crate::crypto::decrypt(stored, self.crypto_key.as_ref(), is_new_key)
     }
 
     /// Marks the app as being in emergency mode.
@@ -172,7 +215,7 @@ impl AppState {
 
     /// Returns true if the keychain is available for encryption operations.
     pub fn keychain_available(&self) -> bool {
-        self.keychain_status == KeychainStatus::Available
+        matches!(self.keychain_status, KeychainStatus::Available { .. })
     }
 
     /// Path helpers — all data files are always resolved through here so
@@ -244,7 +287,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_state(keychain: KeychainStatus) -> AppState {
-        AppState::new(PathBuf::from("/tmp/chronoward-test"), keychain)
+        AppState::new(PathBuf::from("/tmp/chronoward-test"), keychain, None)
     }
 
     #[test]
@@ -279,7 +322,7 @@ mod tests {
 
     #[test]
     fn test_keychain_available_reflects_status() {
-        let avail = make_state(KeychainStatus::Available);
+        let avail = make_state(KeychainStatus::Available { is_new_key: false });
         assert!(avail.keychain_available());
 
         let unavail = make_state(KeychainStatus::Unavailable("locked".to_string()));
@@ -288,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_path_helpers_are_correct() {
-        let state = make_state(KeychainStatus::Available);
+        let state = make_state(KeychainStatus::Available { is_new_key: false });
         assert_eq!(
             state.sheets_path(),
             PathBuf::from("/tmp/chronoward-test/sheets.json")
@@ -305,5 +348,38 @@ mod tests {
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("WRITE_BLOCKED_EMERGENCY_MODE"));
         assert!(json.contains("keychain locked"));
+    }
+
+    #[test]
+    fn test_state_decrypt_blocks_plaintext_downgrade_when_key_preexists() {
+        use secrecy::SecretVec;
+        let key = SecretVec::new(vec![0u8; 32]);
+        let state = AppState::new(
+            PathBuf::from("/tmp/chronoward-test"),
+            KeychainStatus::Available { is_new_key: false },
+            Some(key),
+        );
+        let plaintext_payload = r#"{"2026-07-29": []}"#;
+        let result = state.decrypt(plaintext_payload);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Insecure downgrade attack blocked"));
+    }
+
+    #[test]
+    fn test_state_decrypt_allows_plaintext_migration_when_key_is_new() {
+        use secrecy::SecretVec;
+        let key = SecretVec::new(vec![0u8; 32]);
+        let state = AppState::new(
+            PathBuf::from("/tmp/chronoward-test"),
+            KeychainStatus::Available { is_new_key: true },
+            Some(key),
+        );
+        let plaintext_payload = r#"{"2026-07-29": []}"#;
+        let result = state.decrypt(plaintext_payload).unwrap();
+        assert!(result.needs_reencrypt());
+        assert_eq!(result.into_plaintext(), plaintext_payload);
     }
 }

@@ -26,8 +26,9 @@ pub fn run() {
 
     let data_dir = resolve_data_dir();
     ensure_data_dir(&data_dir);
+    cleanup_temp_files(&data_dir);
 
-    let keychain_status = probe_keychain();
+    let (keychain_status, crypto_key) = probe_keychain();
 
     let emergency = match &keychain_status {
         KeychainStatus::Unavailable(reason) => {
@@ -35,10 +36,10 @@ pub fn run() {
             warn!("Keychain unavailable: {reason}. Encrypted data exists: {encrypted_exists}");
             Some((reason.clone(), encrypted_exists))
         }
-        KeychainStatus::Available => None,
+        KeychainStatus::Available { .. } => None,
     };
 
-    let mut app_state = AppState::new(data_dir.clone(), keychain_status);
+    let mut app_state = AppState::new(data_dir.clone(), keychain_status, crypto_key);
     if let Some((reason, encrypted_exists)) = emergency {
         app_state.set_emergency_mode(reason, encrypted_exists);
     }
@@ -56,6 +57,18 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![]),
         ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+                    if event.state() == ShortcutState::Pressed {
+                        if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space) {
+                            commands::window::toggle_hud(app);
+                        }
+                    }
+                })
+                .build(),
+        )
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::settings::load_settings,
@@ -73,8 +86,14 @@ pub fn run() {
             commands::window::is_warning_active,
             commands::window::show_window,
             commands::window::minimize_to_tray,
+            commands::window::toggle_hud_cmd,
+            commands::window::hide_hud_cmd,
         ])
         .setup(|app| {
+            use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+            let _ = app.global_shortcut().register(shortcut);
+
             // Set up tray — store the handle so it isn't dropped and disappears
             match tray::setup(app.handle()) {
                 Ok(tray_icon) => {
@@ -105,7 +124,7 @@ pub fn run() {
                 if let Ok(raw) = std::fs::read_to_string(&s_path) {
                     let plaintext = if raw.trim_start().starts_with("enc1:") {
                         if state.keychain_available() {
-                            crypto::decrypt(raw.trim())
+                            state.decrypt(raw.trim())
                                 .map(|r| r.into_plaintext())
                                 .ok()
                         } else {
@@ -228,4 +247,72 @@ fn check_encrypted_data_exists(data_dir: &std::path::Path) -> bool {
         }
     }
     false
+}
+
+fn cleanup_temp_files(dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs(3600); // 1 hour
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.contains(".tmp.") {
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        if let Ok(age) = now.duration_since(modified) {
+                            if age > max_age {
+                                if let Err(e) = std::fs::remove_file(&path) {
+                                    warn!("Failed to remove orphaned temp file {:?}: {e}", path);
+                                } else {
+                                    info!("Cleaned up orphaned temp file {:?}", path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cleanup_temp_files_preserves_valid_data() {
+        let temp_dir = std::env::temp_dir().join("chronoward_cleanup_test");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let valid_file = temp_dir.join("sheets.json");
+        let _ = std::fs::write(&valid_file, "valid data");
+
+        cleanup_temp_files(&temp_dir);
+
+        assert!(valid_file.exists());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_cleanup_temp_files_deletes_expired_tmp_files() {
+        let temp_dir = std::env::temp_dir().join("chronoward_cleanup_test_expired");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let old_tmp = temp_dir.join("sheets.json.tmp.12345");
+        let file = std::fs::File::create(&old_tmp).unwrap();
+
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        let _ = file.set_modified(two_hours_ago);
+        drop(file);
+
+        cleanup_temp_files(&temp_dir);
+
+        assert!(!old_tmp.exists());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
