@@ -5,8 +5,8 @@
 ### Update — 2026-07-29
 
 #### Security, Concurrency & Data Integrity
-- **Insecure Downgrade Attack Prevention & Zero-Allocation Validation**: Hardened `decrypt()` and `probe_keychain()` in `crypto.rs` to track OS Keychain key creation state (`is_new_key`), strictly blocking unencrypted plaintext JSON fallbacks when an established key is active to prevent downgrade attacks. Optimized legacy JSON syntax validation to use zero-allocation `serde::de::IgnoredAny` parsing instead of heap-allocating dynamic `serde_json::Value` trees.
-- **CSV Formula Injection Edge Case Neutralization**: Enhanced `sanitizeCsvCell()` in `utils.js` to evaluate formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) against leading-whitespace trimmed values while prepending single quote `'` to the full string, neutralizing formula injection for cells with leading spaces while preserving formatting.
+- **Insecure Downgrade Attack Prevention & Command-Level Enforcement**: Hardened `decrypt()` and `probe_keychain()` in `crypto.rs` to track OS Keychain key creation state (`is_new_key`), strictly blocking unencrypted plaintext JSON fallbacks when an established key is active to prevent downgrade attacks. Optimized legacy JSON syntax validation to use zero-allocation `serde::de::IgnoredAny` parsing. *Fixed an issue where `load_sheets()`, `load_timers()`, and `load_settings()` previously bypassed `decrypt()` by checking `starts_with("enc1:")`; updated all command loaders in `sheets.rs`, `timers.rs`, and `settings.rs` to route all payloads directly through `state.decrypt()` to guarantee command-level downgrade enforcement.*
+- **CSV Formula Injection & Falsy Value Data Loss Neutralization**: Enhanced `sanitizeCsvCell()` in `utils.js` to evaluate formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) against leading-whitespace trimmed values while prepending single quote `'` to the full string, neutralizing formula injection for cells with leading spaces while preserving formatting. *Fixed a data loss bug where `val || ''` converted numeric `0` and boolean `false` into empty strings; updated to nullish coalescing `val ?? ''` to preserve legitimate `0` and `false` values in CSV exports.*
 - **DST / Timezone Boundary Drift Insulation**: Fixed date parsing in `getWeekMonday()`, `dayAbbr()`, and `getWeekdayDates()` in `utils.js` to parse date strings at fixed noon (`T12:00:00`), preventing daylight saving time transitions from causing day-shifting drift across midnight.
 
 #### Architectural Hardening & Memory Management
@@ -20,7 +20,8 @@
 - **Non-Destructive IPC Bridge & Seamless DOM Append**: Removed destructive `loadSheets()` disk-reloads from `api.js` and updated `app.js` to append HUD task rows seamlessly via `addRow()`. Persists combined state immediately, preserving unsaved typing, cursor focus, button event listeners, and `detailedMode` / `projectMode` styling.
 
 #### Test Coverage Expansion
-- **Crypto Unit Test Suite**: Added `test_decrypt_rejects_plaintext_downgrade_when_key_preexists` and `test_decrypt_rejects_malformed_legacy_json` in `crypto.rs` (100% of 22 Rust unit tests passing cleanly).
+- **State & Crypto Unit Test Suites**: Added `test_state_decrypt_blocks_plaintext_downgrade_when_key_preexists` and `test_state_decrypt_allows_plaintext_migration_when_key_is_new` in `state.rs`, alongside `crypto.rs` tests (100% of 24 Rust unit tests passing cleanly).
+- **Frontend Utility Test Suite**: Added Node.js native test runner test suite in `tests/utils.test.js` and configured `"test": "node --test"` in `package.json` covering `sanitizeCsvCell()` edge cases including falsy values, quote escaping, and formula injection (5/5 unit tests passing cleanly).
 
 ### Update — 2026-07-28
 
