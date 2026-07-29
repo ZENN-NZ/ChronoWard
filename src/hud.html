@@ -215,18 +215,6 @@
 
       try {
         const todayStr = getTodayString();
-        let sheets = {};
-        try {
-          const res = await invoke('load_sheets');
-          if (res && res.data) sheets = res.data;
-        } catch (e) {
-          sheets = {};
-        }
-
-        if (!sheets[todayStr]) {
-          sheets[todayStr] = [];
-        }
-
         const newRow = {
           timerId: 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
           task: `[${project}] ${task}`,
@@ -236,10 +224,7 @@
           description: ''
         };
 
-        sheets[todayStr].push(newRow);
-        await invoke('save_sheets', { sheets: sheets });
-
-        // Notify main window via frontend event with payload
+        // Notify main window via frontend event with payload (app.js handles persistence)
         await emit('hud-entry-added', { date: todayStr, row: newRow });
 
         // Reset & dismiss
