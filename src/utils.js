@@ -37,7 +37,7 @@ export function formatDate(d) {
 }
 
 export function getWeekMonday(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
+  const d = new Date(dateStr + 'T12:00:00');
   const day = d.getDay(); // 0=Sun, 1=Mon, ...
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   d.setDate(diff);
@@ -46,11 +46,11 @@ export function getWeekMonday(dateStr) {
 
 export function dayAbbr(dateStr) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  return days[new Date(dateStr + 'T00:00:00').getDay()];
+  return days[new Date(dateStr + 'T12:00:00').getDay()];
 }
 
 export function getWeekdayDates(dateStr) {
-  const monday = new Date(getWeekMonday(dateStr) + 'T00:00:00');
+  const monday = new Date(getWeekMonday(dateStr) + 'T12:00:00');
   const dates = [];
   for (let i = 0; i < 5; i++) {
     const d = new Date(monday);
