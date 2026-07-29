@@ -2,6 +2,26 @@
 
 ## [2.0.0] - 2026-07-27
 
+### Update — 2026-07-29
+
+#### Security, Concurrency & Data Integrity
+- **Legacy Plaintext Decryption Strict JSON Validation**: Hardened `decrypt()` in `crypto.rs` to validate unencrypted legacy strings using `serde_json::from_str` before accepting as legacy data, preventing malformed payloads from bypassing sentinel security checks.
+- **CSV Formula Injection Edge Case Neutralization**: Enhanced `sanitizeCsvCell()` in `utils.js` to evaluate formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) against leading-whitespace trimmed values while prepending single quote `'` to the full string, neutralizing formula injection for cells with leading spaces while preserving formatting.
+- **DST / Timezone Boundary Drift Insulation**: Fixed date parsing in `getWeekMonday()`, `dayAbbr()`, and `getWeekdayDates()` in `utils.js` to parse date strings at fixed noon (`T12:00:00`), preventing daylight saving time transitions from causing day-shifting drift across midnight.
+
+#### Architectural Hardening & Memory Management
+- **Boot State Hydration & Settings Synchronization**: Initialized `store.timers` and `store.settings` in `app.js` during boot and wired reactive `store.on('timers-changed')` and `store.on('settings-changed')` event listeners to ensure state store synchronization across modules.
+- **Configurable Timer Duration Stepping**: Updated `stopTimer()` in `timers.js` to dynamically apply `store.settings.hourIncrement` rounding to stopped timer durations with floating-point precision protection.
+- **Orphaned Timer Interval Teardown**: Moved `clearInterval` and handle deletion in `stopTimer()` above state guards in `timers.js`, eliminating interval memory leaks when deleting running timer rows.
+- **Dead State Removal**: Purged unused module-scoped `activeTimerIntervals` declaration from `app.js`.
+
+#### Non-Destructive Quick Log HUD Synchronization
+- **Full Row Payload Broadcasting**: Updated `hud.html` to broadcast complete task row objects in `hud-entry-added` events.
+- **Non-Destructive IPC Bridge & Seamless DOM Append**: Removed destructive `loadSheets()` disk-reloads from `api.js` and updated `app.js` to append HUD task rows seamlessly via `addRow()`. Persists combined state immediately, preserving unsaved typing, cursor focus, button event listeners, and `detailedMode` / `projectMode` styling.
+
+#### Test Coverage Expansion
+- **Crypto Unit Test Suite**: Added `test_decrypt_rejects_malformed_legacy_json` in `crypto.rs` (100% of 21 Rust unit tests passing cleanly).
+
 ### Update — 2026-07-28
 
 #### Security, Concurrency & Data Integrity
