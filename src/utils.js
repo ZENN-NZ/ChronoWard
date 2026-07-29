@@ -20,7 +20,8 @@ export function escHtml(str) {
 
 export function sanitizeCsvCell(val) {
   let str = String(val || '').replace(/"/g, '""');
-  if (/^[=+\-@]/.test(str)) {
+  const trimmed = str.trimStart();
+  if (/^[=+\-@\t\r]/.test(trimmed)) {
     str = "'" + str;
   }
   return `"${str}"`;
