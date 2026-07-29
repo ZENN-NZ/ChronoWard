@@ -83,7 +83,9 @@ export function stopTimer(timerId, silent, store, callbacks = {}) {
   }
   if (!silent) {
     const totalHoursRaw = t.elapsed / 1000 / 3600;
-    const roundedHours = Math.ceil(totalHoursRaw * 2) / 2;
+    const rawInc = parseFloat(store.settings?.hourIncrement);
+    const inc = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
+    const roundedHours = Math.round((Math.ceil(totalHoursRaw / inc) * inc) * 100) / 100;
     const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
     if (tr) {
       const input = tr.querySelector('.hours-input');

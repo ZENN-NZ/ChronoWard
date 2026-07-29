@@ -42,7 +42,9 @@ async function init() {
   setupStaticListeners();
   setupEventListeners();
 
-  settings = await invoke('load_settings');
+  const loadedSettings = await invoke('load_settings');
+  store.settings = loadedSettings || {};
+  settings = store.settings;
   const sheetsResult = await invoke('load_sheets');
 
   // Handle emergency mode (Decision 1c-ii)
@@ -211,6 +213,10 @@ async function setupEventListeners() {
     enterEmergencyMode(payload);
   });
 
+  store.on('settings-changed', (newSettings) => {
+    settings = newSettings || {};
+  });
+
   store.on('timers-changed', (newTimers) => {
     timers = newTimers || {};
   });
@@ -374,6 +380,7 @@ async function saveSettings() {
   document.getElementById('detailedModeToggle').checked = detailedMode;
   applyDetailedMode();
 
+  store.settings = settings;
   await invoke('save_settings', { settings });
   showToast('Settings saved ✓');
   checkHoursWarning();
