@@ -191,7 +191,11 @@ impl AppState {
 
     /// Helper to decrypt using the cached key.
     pub fn decrypt(&self, stored: &str) -> anyhow::Result<crate::crypto::DecryptResult> {
-        crate::crypto::decrypt(stored, self.crypto_key.as_ref())
+        let is_new_key = matches!(
+            self.keychain_status,
+            KeychainStatus::Available { is_new_key: true }
+        );
+        crate::crypto::decrypt(stored, self.crypto_key.as_ref(), is_new_key)
     }
 
     /// Marks the app as being in emergency mode.
@@ -211,7 +215,7 @@ impl AppState {
 
     /// Returns true if the keychain is available for encryption operations.
     pub fn keychain_available(&self) -> bool {
-        self.keychain_status == KeychainStatus::Available
+        matches!(self.keychain_status, KeychainStatus::Available { .. })
     }
 
     /// Path helpers — all data files are always resolved through here so
@@ -318,7 +322,7 @@ mod tests {
 
     #[test]
     fn test_keychain_available_reflects_status() {
-        let avail = make_state(KeychainStatus::Available);
+        let avail = make_state(KeychainStatus::Available { is_new_key: false });
         assert!(avail.keychain_available());
 
         let unavail = make_state(KeychainStatus::Unavailable("locked".to_string()));
@@ -327,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_path_helpers_are_correct() {
-        let state = make_state(KeychainStatus::Available);
+        let state = make_state(KeychainStatus::Available { is_new_key: false });
         assert_eq!(
             state.sheets_path(),
             PathBuf::from("/tmp/chronoward-test/sheets.json")

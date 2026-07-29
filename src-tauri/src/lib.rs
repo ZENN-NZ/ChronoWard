@@ -36,7 +36,7 @@ pub fn run() {
             warn!("Keychain unavailable: {reason}. Encrypted data exists: {encrypted_exists}");
             Some((reason.clone(), encrypted_exists))
         }
-        KeychainStatus::Available => None,
+        KeychainStatus::Available { .. } => None,
     };
 
     let mut app_state = AppState::new(data_dir.clone(), keychain_status, crypto_key);
