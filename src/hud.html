@@ -239,8 +239,8 @@
         sheets[todayStr].push(newRow);
         await invoke('save_sheets', { sheets: sheets });
 
-        // Notify main window to refresh via frontend event
-        await emit('hud-entry-added', todayStr);
+        // Notify main window via frontend event with payload
+        await emit('hud-entry-added', { date: todayStr, row: newRow });
 
         // Reset & dismiss
         taskInput.value = '';
