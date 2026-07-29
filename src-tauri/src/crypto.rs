@@ -155,9 +155,14 @@ pub fn decrypt(stored: &str, key: Option<&SecretVec<u8>>) -> Result<DecryptResul
         let decrypted = decrypt_enc1(payload, key)?;
         Ok(DecryptResult::Decrypted(decrypted))
     } else if (trimmed.starts_with('{') || trimmed.starts_with('[')) && !trimmed.starts_with("enc") {
-        // Legacy plaintext — valid JSON payload that predates encryption
-        warn!("Read unencrypted legacy data — will be encrypted on next save");
-        Ok(DecryptResult::WasPlaintext(stored.to_string()))
+        if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+            warn!("Read unencrypted legacy data — will be encrypted on next save");
+            Ok(DecryptResult::WasPlaintext(stored.to_string()))
+        } else {
+            Err(anyhow!(
+                "Legacy payload starts with JSON prefix but contains invalid JSON syntax"
+            ))
+        }
     } else {
         // Unknown sentinel or invalid non-JSON payload — fail hard to prevent unauthorized state injection or data corruption
         Err(anyhow!(
