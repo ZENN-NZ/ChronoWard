@@ -1,6 +1,24 @@
 # Changelog
 
-## [2.0.0]
+## [2.0.1] - 2026-07-30
+
+### Fixed
+- **DOM XSS Security Vulnerability**: Sanitized input variables (`fromStr`, `toStr`) rendered directly to `container.innerHTML` in `renderDateRangeTimesheets()` in `src/app.js` using `escHtml()`, resolving GitHub CodeQL security alert (`js/xss-through-dom`, CWE-79 / CWE-116).
+- **Theme Settings Persistence & Default Selection**: Fixed an issue where manual theme selection was lost upon closing and reopening ChronoWard. Selecting a theme swatch now immediately persists `settings.theme` and `settings.themeSetAt` to storage, making the chosen theme the default on restart.
+- **Weekly Theme Auto-Rotation Integration**: Updated weekly theme auto-rotation (`autoRotateTheme`) to rotate seamlessly relative to the user's selected base theme (`settings.theme`) starting from `settings.themeSetAt`.
+
+### Security
+- Enhanced `escHtml()` in `src/utils.js` to escape single quotes (`'`) to `&#39;` alongside double quotes, ampersands, and angle brackets, preventing attribute injection vulnerabilities.
+
+### Changed
+- `src/app.js` — sanitized DOM string interpolation in range renderer, updated `applyTheme` to immediately persist settings and record `themeSetAt`, and updated `init()` theme calculation to advance auto-rotation relative to saved base theme.
+- `src/utils.js` — expanded `escHtml()` single quote entity replacement.
+- `tests/utils.test.js` — added unit tests covering `escHtml()` sanitization across special characters and edge cases (6/6 Node.js unit tests passing cleanly).
+- `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json` — bumped version number to `2.0.1`.
+
+---
+
+## [2.0.0] - 2026-07-29
 
 ### Core Features & Neurodivergent UX
 - **Designed for Focus (ADHD / ASD Support)**: Built ChronoWard's layout specifically to reduce distractions, combat time-blindness, and assist with executive focus and task management.

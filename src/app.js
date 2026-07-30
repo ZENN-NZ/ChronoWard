@@ -76,12 +76,15 @@ async function init() {
 
   let activeTheme = settings.theme || 'midnight';
   if (settings.autoRotateTheme !== false) {
-    const elapsedDays = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24));
-    const themeIndex = Math.floor(elapsedDays / 7) % THEMES.length;
-    activeTheme = THEMES[themeIndex].id;
+    const baseTheme = settings.theme || 'midnight';
+    const baseIndex = Math.max(0, THEMES.findIndex(t => t.id === baseTheme));
+    const baseTime = settings.themeSetAt || installedAt;
+    const elapsedDays = Math.floor((Date.now() - baseTime) / (1000 * 3600 * 24));
+    const rotation = Math.floor(elapsedDays / 7);
+    activeTheme = THEMES[(baseIndex + rotation) % THEMES.length].id;
   }
 
-  applyTheme(activeTheme);
+  applyTheme(activeTheme, false);
   renderThemeGrid();
   applySettingsToUI();
 
@@ -307,13 +310,24 @@ function renderWeeklyCompletion() {
 }
 
 // ---- Theme ----
-function applyTheme(themeId) {
+function applyTheme(themeId, shouldSave = true) {
   if (!THEMES.find(t => t.id === themeId)) return;
   document.body.className = `theme-${themeId}`;
   settings.theme = themeId;
+  settings.themeSetAt = Date.now();
   document.querySelectorAll('.theme-swatch').forEach(el => {
-    el.classList.toggle('active', el.dataset.theme === themeId);
+    const isActive = el.dataset.theme === themeId;
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-checked', isActive ? 'true' : 'false');
   });
+  if (shouldSave && !isEmergencyMode) {
+    store.settings = settings;
+    invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+  }
+}
+
+function selectTheme(themeId) {
+  applyTheme(themeId, true);
 }
 
 function renderThemeGrid() {
@@ -327,8 +341,8 @@ function renderThemeGrid() {
     swatch.setAttribute('aria-checked', settings.theme === theme.id ? 'true' : 'false');
     swatch.setAttribute('aria-label', `${theme.name} theme`);
     swatch.setAttribute('tabindex', '0');
-    swatch.onclick = () => applyTheme(theme.id);
-    swatch.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') applyTheme(theme.id); };
+    swatch.onclick = () => selectTheme(theme.id);
+    swatch.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') selectTheme(theme.id); };
 
     const preview = document.createElement('div');
     preview.className = 'swatch-preview';
@@ -1197,7 +1211,7 @@ function renderDateRangeTimesheets() {
     container.innerHTML = `
       <div class="empty-state">
         <span class="empty-icon">🗓️</span>
-        <p>No timesheets logged between ${fromStr} and ${toStr}</p>
+        <p>No timesheets logged between ${escHtml(fromStr)} and ${escHtml(toStr)}</p>
       </div>`;
     return;
   }
