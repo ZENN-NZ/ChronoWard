@@ -1,62 +1,40 @@
 # Changelog
 
-## [2.0.0] - 2026-07-27
-
-### Update — 2026-07-29
-
-#### Security, Concurrency & Data Integrity
-- **Insecure Downgrade Attack Prevention & Command-Level Enforcement**: Hardened `decrypt()` and `probe_keychain()` in `crypto.rs` to track OS Keychain key creation state (`is_new_key`), strictly blocking unencrypted plaintext JSON fallbacks when an established key is active to prevent downgrade attacks. Optimized legacy JSON syntax validation to use zero-allocation `serde::de::IgnoredAny` parsing. *Fixed an issue where `load_sheets()`, `load_timers()`, and `load_settings()` previously bypassed `decrypt()` by checking `starts_with("enc1:")`; updated all command loaders in `sheets.rs`, `timers.rs`, and `settings.rs` to route all payloads directly through `state.decrypt()` to guarantee command-level downgrade enforcement.*
-- **CSV Formula Injection & Falsy Value Data Loss Neutralization**: Enhanced `sanitizeCsvCell()` in `utils.js` to evaluate formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) against leading-whitespace trimmed values while prepending single quote `'` to the full string, neutralizing formula injection for cells with leading spaces while preserving formatting. *Fixed a data loss bug where `val || ''` converted numeric `0` and boolean `false` into empty strings; updated to nullish coalescing `val ?? ''` to preserve legitimate `0` and `false` values in CSV exports.*
-- **DST / Timezone Boundary Drift Insulation**: Fixed date parsing in `getWeekMonday()`, `dayAbbr()`, and `getWeekdayDates()` in `utils.js` to parse date strings at fixed noon (`T12:00:00`), preventing daylight saving time transitions from causing day-shifting drift across midnight.
-
-#### Architectural Hardening & Memory Management
-- **Configurable Timer Duration Stepping & Precision Protection**: Updated `stopTimer()` in `timers.js` to dynamically apply `store.settings.hourIncrement` rounding while replacing `.toFixed(1)` truncation with `parseFloat((existing + roundedHours).toFixed(3))`, enabling accurate 15-minute (`0.25h`) and 6-minute (`0.1h`) interval logging without float drift.
-- **DRY Timer Interval Teardown**: Extracted `clearTimerInterval(timerId)` helper in `timers.js` and moved handle deletion above state guards, eliminating duplicate interval cleanup logic and preventing interval memory leaks when deleting running timer rows.
-- **Boot State Hydration & Settings Synchronization**: Initialized `store.timers` and `store.settings` in `app.js` during boot and wired reactive `store.on('timers-changed')` and `store.on('settings-changed')` event listeners to ensure state store synchronization across modules.
-- **Dead State Removal**: Purged unused module-scoped `activeTimerIntervals` declaration from `app.js`.
-
-#### Non-Destructive Quick Log HUD Synchronization
-- **Zero-I/O HUD Event Decoupling**: Completely removed redundant `load_sheets` and `save_sheets` disk I/O from `commitLog()` in `hud.html`. The HUD now functions as a zero-I/O event emitter broadcasting full task row payloads (`hud-entry-added`), leaving `app.js` as the single source of truth for DOM state and disk persistence, eliminating split-brain race conditions.
-- **Non-Destructive IPC Bridge & Seamless DOM Append**: Removed destructive `loadSheets()` disk-reloads from `api.js` and updated `app.js` to append HUD task rows seamlessly via `addRow()`. Persists combined state immediately, preserving unsaved typing, cursor focus, button event listeners, and `detailedMode` / `projectMode` styling.
-
-#### Test Coverage Expansion
-- **State & Crypto Unit Test Suites**: Added `test_state_decrypt_blocks_plaintext_downgrade_when_key_preexists` and `test_state_decrypt_allows_plaintext_migration_when_key_is_new` in `state.rs`, alongside `crypto.rs` tests (100% of 24 Rust unit tests passing cleanly).
-- **Frontend Utility Test Suite**: Added Node.js native test runner test suite in `tests/utils.test.js` and configured `"test": "node --test"` in `package.json` covering `sanitizeCsvCell()` edge cases including falsy values, quote escaping, and formula injection (5/5 unit tests passing cleanly).
-
-### Update — 2026-07-28
-
-#### Security, Concurrency & Data Integrity
-- **CSV Formula Injection Sanitization**: Created `sanitizeCsvCell()` in `utils.js` to neutralize formula triggers (`=`, `+`, `-`, `@`) with a leading single quote `'` before exporting CSV files.
-- **Concurrent Save Race Condition Protection**: Implemented `write_lock: tokio::sync::Mutex<()>` across backend `save_sheets`, `save_timers`, and `save_settings` command handlers to ensure thread-safe disk persistence.
-- **OS Keychain Performance Optimization**: Cached the OS Keychain encryption key in `AppState` using `secrecy::SecretVec<u8>` at startup, eliminating repetitive OS IPC overhead during rapid typing and timer ticks.
-- **Insecure Downgrade Attack Prevention**: Hardened `crypto::decrypt` to strictly validate JSON payload structure (`{` or `[`) for legacy unencrypted data compatibility.
-- **Floating-Point & Math Hardening**: Added non-zero `hourIncrement` validation and applied `Math.round(val * 100) / 100` rounding in `app.js` to eliminate IEEE 754 precision drift.
-
-#### System Hardening & Test Coverage
-- **Orphaned Temp File Purging**: Added background startup cleanup in `lib.rs` to automatically purge `.tmp.*` files older than 1 hour.
-- **Backend Test Suite Expansion**: Added unit tests covering time parsing, boundary cases, whitespace handling, and focus trigger daily housekeeping in `scheduler.rs` (100% of 20 unit tests pass).
-
-#### Modular Frontend Architecture Refactoring
-- **ES6 Module Separation**: Restructured monolithic `app.js` into focused ES6 modules (`utils.js`, `api.js`, `state.js`, `timers.js`).
-- **Reactive State Store & IPC Event Protection**: Built an `EventTarget`-backed reactive store (`state.js`) and centralized Tauri IPC listeners in `api.js`.
-- **Quick Log HUD & Active Timer Sync**: Ensured Quick Log HUD entry additions cleanly sync state and preserve running timer button highlights without DOM thrashing or resetting running intervals.
-
-### Release — 2026-07-27
+## [2.0.0]
 
 ### Core Features & Neurodivergent UX
 - **Designed for Focus (ADHD / ASD Support)**: Built ChronoWard's layout specifically to reduce distractions, combat time-blindness, and assist with executive focus and task management.
-- **Quick-Capture HUD (`Ctrl+Shift+Space`)**: Press `Ctrl+Shift+Space` anywhere on your computer to open a pop-up window (`src/hud.html`) and log active tasks in seconds.
+- **Quick-Capture HUD (`Ctrl+Shift+Space`)**: Press `Ctrl+Shift+Space` anywhere on your computer to open a pop-up window (`src/hud.html`) and log active tasks in seconds, featuring an optional `Ticket #` field and streamlined entry.
 - **Pomodoro Focus View**: Added a `🍅 Pomodoro` mode that hides busy tables and displays only your single active task card to prevent feeling overwhelmed.
 - **Visual Time Ring**: Added a smooth progress ring around active timers so you can visually see time passing rather than just watching numbers count down.
-- **Quick-Capture Enhancements**: Added an optional `Ticket #` field to the Quick Log HUD and removed default timestamp descriptions.
 - **Date Range Timesheet Explorer**: Refactored the secondary view into an interactive range explorer featuring `From` and `To` date pickers, quick presets (`This Week`, `This Month`), summary stats, and easy day navigation (`Edit Date ↵`).
-
-### Security, Communication & Stability Fixes
-- **Enterprise Security Permissions**: Created official permission files (`src-tauri/capabilities/`) to safely control what each window can do. The main window can listen for updates, while the HUD window can send them, keeping the app secure for enterprise environments.
-- **Real-Time Log Refresh**: Fixed an issue where new logs entered in the Quick Capture HUD didn't show up on screen immediately. The main window now refreshes instantly when a log is saved.
-- **App Startup Reliability**: Cleaned up window initialization in `app.js` to ensure the app launches without background errors.
 - **Keyboard Shortcuts Help Menu (`?`)**: Added `Ctrl+Shift+Space` (Open Quick Capture HUD) to the interactive Keyboard Shortcuts help modal (`?`).
-- **Version Alignment**: Updated project configuration files (`package-lock.json` and `package.json`) so version numbers match across the codebase.
+
+### Quick Log HUD & Real-Time Synchronization
+- **Zero-I/O HUD Event Decoupling**: Completely removed redundant `load_sheets` and `save_sheets` disk I/O from `commitLog()` in `hud.html`. The HUD now functions as a zero-I/O event emitter broadcasting full task row payloads (`hud-entry-added`), leaving `app.js` as the single source of truth for DOM state and disk persistence, eliminating split-brain race conditions.
+- **Non-Destructive IPC Bridge & Seamless DOM Append**: Removed destructive `loadSheets()` disk-reloads from `api.js` and updated `app.js` to append HUD task rows seamlessly via `addRow()`. Persists combined state immediately, preserving unsaved typing, cursor focus, button event listeners, and `detailedMode` / `projectMode` styling.
+- **Real-Time Active Timer & Log Refresh**: Ensured Quick Log HUD entry additions cleanly sync state, refresh main window logs instantly, and preserve running timer button highlights without DOM thrashing or resetting running intervals.
+
+### Security, Concurrency & Data Integrity
+- **Insecure Downgrade Attack Prevention & Command Enforcement**: Hardened `decrypt()` and `probe_keychain()` in `crypto.rs` to track OS Keychain key creation state (`is_new_key`), strictly blocking unencrypted plaintext JSON fallbacks when an established key is active to prevent downgrade attacks. Optimized legacy JSON syntax validation to use zero-allocation `serde::de::IgnoredAny` parsing, and updated all command loaders (`sheets.rs`, `timers.rs`, `settings.rs`) to route all payloads directly through `state.decrypt()`.
+- **OS Keychain Performance Optimization**: Cached the OS Keychain encryption key in `AppState` using `secrecy::SecretVec<u8>` at startup, eliminating repetitive OS IPC overhead during rapid typing and timer ticks.
+- **CSV Formula Injection & Falsy Value Data Loss Neutralization**: Created and enhanced `sanitizeCsvCell()` in `utils.js` to evaluate formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) against leading-whitespace trimmed values while prepending a single quote `'`, neutralizing formula injection while preserving formatting. Fixed a data loss bug by switching from `val || ''` to nullish coalescing `val ?? ''` to preserve legitimate `0` and `false` values in CSV exports.
+- **Concurrent Save Race Condition Protection**: Implemented `write_lock: tokio::sync::Mutex<()>` across backend `save_sheets`, `save_timers`, and `save_settings` command handlers to ensure thread-safe disk persistence.
+- **Enterprise Security Permissions**: Created official permission files (`src-tauri/capabilities/`) to safely control capability scopes per window for enterprise safety.
+
+### Architecture, State Management & System Hardening
+- **ES6 Modular Frontend Architecture**: Restructured monolithic `app.js` into focused ES6 modules (`utils.js`, `api.js`, `state.js`, `timers.js`).
+- **Reactive State Store & Boot Hydration**: Built an `EventTarget`-backed reactive store (`state.js`) and centralized Tauri IPC listeners in `api.js`. Initialized `store.timers` and `store.settings` during boot with reactive event listeners (`timers-changed`, `settings-changed`) for cross-module state synchronization.
+- **Configurable Timer Duration Stepping & Precision Protection**: Updated `stopTimer()` in `timers.js` to dynamically apply `store.settings.hourIncrement` rounding with non-zero validation while replacing `.toFixed(1)` truncation with `parseFloat((existing + roundedHours).toFixed(3))` and `Math.round(val * 100) / 100` rounding to eliminate IEEE 754 precision drift.
+- **DRY Timer Interval Teardown & Dead State Cleanup**: Extracted `clearTimerInterval(timerId)` helper in `timers.js` and moved handle deletion above state guards, eliminating duplicate interval cleanup logic, preventing interval memory leaks, and purging unused module-scoped declarations.
+- **DST / Timezone Boundary Drift Insulation**: Fixed date parsing in `getWeekMonday()`, `dayAbbr()`, and `getWeekdayDates()` in `utils.js` to parse date strings at fixed noon (`T12:00:00`), preventing daylight saving time transitions from causing day-shifting drift across midnight.
+- **Orphaned Temp File Purging**: Added background startup cleanup in `lib.rs` to automatically purge `.tmp.*` files older than 1 hour.
+- **App Startup Reliability & Version Alignment**: Cleaned up window initialization in `app.js` to ensure the app launches cleanly without background errors, and aligned project configuration version numbers (`package-lock.json` and `package.json`).
+
+### Test Coverage Expansion
+- **State & Crypto Unit Test Suites**: Added `test_state_decrypt_blocks_plaintext_downgrade_when_key_preexists` and `test_state_decrypt_allows_plaintext_migration_when_key_is_new` in `state.rs`, alongside `crypto.rs` tests (100% of 24 Rust unit tests passing cleanly).
+- **Backend Scheduler Test Suite Expansion**: Added unit tests covering time parsing, boundary cases, whitespace handling, and focus trigger daily housekeeping in `scheduler.rs` (100% of 20 unit tests passing cleanly).
+- **Frontend Utility Test Suite**: Created Node.js native test runner test suite in `tests/utils.test.js` and configured `"test": "node --test"` in `package.json` covering `sanitizeCsvCell()` edge cases including falsy values, quote escaping, and formula injection (5/5 unit tests passing cleanly).
 
 ---
 
