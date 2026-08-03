@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.2] - 2026-08-03
+
+### Quick Log HUD & UI Enhancements
+- **Dynamic Hour Increment & Zero-Default**: Updated Quick Log HUD (`src/hud.html`) to initialize task entry hours at `0` (min `0`) and dynamically set input stepping based on `settings.hourIncrement` loaded at runtime.
+- **Blank Category Selection**: Updated Quick Log HUD category selector (`projectSelect`) to default to a blank option (`""`), allowing users to optionally assign a category or leave it unassigned without automatically prepending `[General]` or empty brackets (`[]`).
+
+### Visual Polish
+- **Overlay Drop Shadow**: Removed drop-shadow CSS filter from the floating overlay icon (`src/overlay.html`).
+
+### Version Alignment
+- `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json` — bumped version number to `2.0.2`.
+
+---
+
 ## [2.0.1] - 2026-07-30
 
 ### Fixed
