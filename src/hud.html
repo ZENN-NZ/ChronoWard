@@ -157,6 +157,7 @@
 
       <div class="hud-input-row">
         <select id="projectSelect" class="hud-select">
+          <option value="" selected></option>
           <option value="General">General</option>
           <option value="Development">Development</option>
           <option value="Research">Research</option>
@@ -166,7 +167,7 @@
 
         <input type="text" id="ticketInput" class="hud-input" placeholder="Ticket # (opt)" style="width: 120px; text-transform: uppercase;" />
 
-        <input type="number" id="hoursInput" class="hud-input hud-hours-input" value="0.5" step="0.5" min="0.1" max="24" title="Hours" />
+        <input type="number" id="hoursInput" class="hud-input hud-hours-input" value="0" step="0.5" min="0" max="24" title="Hours" />
         <span style="font-size:0.85rem; color:#94a3b8;">hours</span>
 
         <div style="flex:1;"></div>
@@ -201,7 +202,7 @@
       const task = taskInput.value.trim();
       const project = projectSelect.value;
       const ticketNum = ticketInput.value.trim().toUpperCase();
-      const hours = parseFloat(hoursInput.value) || 0.5;
+      const hours = parseFloat(hoursInput.value) || 0;
 
       if (!task) {
         statusMessage.textContent = 'Please enter a task description';
@@ -215,9 +216,10 @@
 
       try {
         const todayStr = getTodayString();
+        const taskText = project ? `[${project}] ${task}` : task;
         const newRow = {
           timerId: 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-          task: `[${project}] ${task}`,
+          task: taskText,
           hours: hours,
           ot: false,
           ticketNum: ticketNum,
@@ -230,6 +232,8 @@
         // Reset & dismiss
         taskInput.value = '';
         ticketInput.value = '';
+        projectSelect.value = '';
+        hoursInput.value = 0;
         statusMessage.textContent = 'Logged!';
         setTimeout(async () => {
           await invoke('hide_hud_cmd');
@@ -254,12 +258,23 @@
       }
     });
 
-    listen('hud-opened', () => {
+    listen('hud-opened', async () => {
       taskInput.value = '';
       ticketInput.value = '';
+      projectSelect.value = '';
       statusMessage.textContent = 'Ready';
       statusMessage.style.color = '#38bdf8';
       setTimeout(() => taskInput.focus(), 50);
+
+      try {
+        const settings = await invoke('load_settings');
+        if (settings && settings.hourIncrement) {
+          hoursInput.step = settings.hourIncrement;
+        }
+      } catch (err) {
+        console.error('Failed to load settings in HUD:', err);
+      }
+      hoursInput.value = 0;
     });
   </script>
 </body>
