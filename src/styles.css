@@ -572,7 +572,7 @@ html, body {
 .col-actions { width: 36px; }
 
 /* Detailed & Description columns */
-.col-detailed { width: 120px; }
+.col-detailed { width: 170px; }
 .col-desc   { width: 56px; text-align: center; }
 
 .ticket-input {
@@ -585,11 +585,16 @@ html, body {
   padding: 6px 4px;
   border-radius: var(--radius-sm);
   outline: none;
-  transition: background var(--transition);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
   letter-spacing: 0.04em;
 }
 .ticket-input:focus { background: var(--bg-3); }
 .ticket-input::placeholder { color: var(--text-3); }
+.ticket-input.ticket-invalid {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  border: 1px solid #ef4444 !important;
+}
 
 .desc-btn {
   width: 32px;

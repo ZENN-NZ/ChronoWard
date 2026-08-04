@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.3] - 2026-08-04
+
+### Dual 12/12 Ticket Tracking System
+- **Enterprise Ticket Capacity Expansion**: Expanded ticket input character handling across the main table grid (`src/app.js`) and Quick Log HUD (`src/hud.html`) from an 11-character limit to a 25-character max length.
+- **12/12 Constraint Validation & Visual Feedback**: Added `parseTicketNum()` utility function (`src/utils.js`) to parse and validate ticket entries against a Dual 12/12 system constraint (up to 12-character prefix and up to 12-digit integer ID), triggering non-blocking red visual error feedback (`.ticket-invalid`) on both the main table and HUD when the 12/12 limit is exceeded.
+- **UI & Layout Alignment**: Increased ticket column width in main table (`src/styles.css`) and Quick Log HUD (`src/hud.html`) from `120px` to `170px` / `160px` to fit high-volume enterprise tickets without text truncation.
+- **Unit Test Coverage**: Added unit tests in `tests/utils.test.js` verifying `parseTicketNum()` across valid and invalid enterprise ticket key variations (7/7 unit tests passing).
+
+---
+
 ## [2.0.2] - 2026-08-03
 
 ### Quick Log HUD & UI Enhancements

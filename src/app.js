@@ -1,4 +1,4 @@
-import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates } from './utils.js';
+import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum } from './utils.js';
 import * as api from './api.js';
 import { store } from './state.js';
 import * as timersModule from './timers.js';
@@ -631,9 +631,17 @@ function addRow(data = null, insertAfterEl = null) {
   ticketInput.className = 'ticket-input';
   ticketInput.placeholder = 'e.g. 12345';
   ticketInput.value = ticketNum;
-  ticketInput.maxLength = 11;
+  ticketInput.maxLength = 25;
   ticketInput.setAttribute('aria-label', 'Ticket number');
-  ticketInput.addEventListener('input', () => onDataChangeDebounced());
+  const validateTicket = (input) => {
+    const { isValid } = parseTicketNum(input.value);
+    input.classList.toggle('ticket-invalid', !isValid);
+  };
+  validateTicket(ticketInput);
+  ticketInput.addEventListener('input', () => {
+    validateTicket(ticketInput);
+    onDataChangeDebounced();
+  });
   ticketInput.addEventListener('blur', () => saveCurrentSheet());
   tdTicket.appendChild(ticketInput);
   tr.appendChild(tdTicket);
