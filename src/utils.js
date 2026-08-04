@@ -28,6 +28,17 @@ export function sanitizeCsvCell(val) {
   return `"${str}"`;
 }
 
+export function parseTicketNum(val) {
+  const str = String(val ?? '').trim();
+  if (!str) return { prefix: '', id: '', isValid: true };
+  const match = str.match(/^(.*?)(\d*)$/);
+  if (!match) return { prefix: str, id: '', isValid: str.length <= 12 };
+  const prefix = match[1];
+  const id = match[2];
+  const isValid = prefix.length <= 12 && id.length <= 12;
+  return { prefix, id, isValid };
+}
+
 export function getTodayString() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
