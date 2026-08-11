@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.4] - 2026-08-12
+
+### Fixed
+- **Shortcut Date Navigation Data Overwrite**: Fixed an issue where using keyboard shortcuts (`Alt + Left` / `Alt + Right` / `Alt + T`) while actively typing inside a text box caused the current day's data to copy onto or overwrite the target date's sheet view (GitHub Issue #1). Added explicit `document.activeElement.blur()` handling in `shiftSelectedDate()` and `jumpToToday()` in `src/app.js` prior to date updating.
+- **Auto-Rotate Theme Queue & Manual Selection Persistence**: Fixed an issue where manually selecting a theme while Auto-Rotate Theme was enabled would revert back to the old theme on app restart.
+  - Implemented a week-offset calculation system (`themeBaseOffset`) based on `installedAt` that injects manual theme selections into the active 7-day rotation queue without resetting the overall rotation rhythm.
+  - Prevented `applyTheme()` in `src/app.js` from mutating in-memory `settings` on app startup (`shouldSave = false`).
+  - Added `theme_base_offset` to the Rust `Settings` struct and its `Default` implementation in `src-tauri/src/state.rs` so the offset correctly persists to disk across restarts.
+
+### Version Alignment
+- `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` — bumped version number to `2.0.4`.
+
+---
+
 ## [2.0.3] - 2026-08-04
 
 ### Dual 12/12 Ticket Tracking System
