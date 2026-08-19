@@ -76,12 +76,9 @@ async function init() {
 
   let activeTheme = settings.theme || 'midnight';
   if (settings.autoRotateTheme !== false) {
-    const baseTheme = settings.theme || 'midnight';
-    const baseIndex = Math.max(0, THEMES.findIndex(t => t.id === baseTheme));
-    const baseTime = settings.themeSetAt || installedAt;
-    const elapsedDays = Math.floor((Date.now() - baseTime) / (1000 * 3600 * 24));
-    const rotation = Math.floor(elapsedDays / 7);
-    activeTheme = THEMES[(baseIndex + rotation) % THEMES.length].id;
+    const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
+    const baseOffset = settings.themeBaseOffset || 0;
+    activeTheme = THEMES[(baseOffset + W) % THEMES.length].id;
   }
 
   applyTheme(activeTheme, false);
@@ -313,17 +310,27 @@ function renderWeeklyCompletion() {
 function applyTheme(themeId, shouldSave = true) {
   if (!THEMES.find(t => t.id === themeId)) return;
   document.body.className = `theme-${themeId}`;
-  settings.theme = themeId;
-  settings.themeSetAt = Date.now();
+
+  if (shouldSave) {
+    const installedAt = settings.installedAt || Date.now();
+    const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
+    const K = THEMES.findIndex(t => t.id === themeId);
+    let baseOffset = (K - W) % THEMES.length;
+    if (baseOffset < 0) baseOffset += THEMES.length;
+
+    settings.theme = themeId;
+    settings.themeBaseOffset = baseOffset;
+    if (!isEmergencyMode) {
+      store.settings = settings;
+      invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+    }
+  }
+
   document.querySelectorAll('.theme-swatch').forEach(el => {
     const isActive = el.dataset.theme === themeId;
     el.classList.toggle('active', isActive);
     el.setAttribute('aria-checked', isActive ? 'true' : 'false');
   });
-  if (shouldSave && !isEmergencyMode) {
-    store.settings = settings;
-    invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
-  }
 }
 
 function selectTheme(themeId) {
@@ -1458,6 +1465,9 @@ function toggleShortcutsModal(show) {
 }
 
 function shiftSelectedDate(days) {
+  if (document.activeElement && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
   saveCurrentSheet();
   const d = new Date(currentDate + 'T00:00:00');
   d.setDate(d.getDate() + days);
@@ -1468,6 +1478,9 @@ function shiftSelectedDate(days) {
 }
 
 function jumpToToday() {
+  if (document.activeElement && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
   saveCurrentSheet();
   currentDate = getTodayString();
   document.getElementById('selectedDate').value = currentDate;

@@ -60,6 +60,9 @@ pub struct Settings {
 
     #[serde(default)]
     pub installed_at: Option<u64>,
+
+    #[serde(default)]
+    pub theme_base_offset: usize,
 }
 
 fn default_auto_rotate_theme() -> bool {
@@ -108,6 +111,7 @@ impl Default for Settings {
             overlay_position: default_overlay_position(),
             auto_rotate_theme: default_auto_rotate_theme(),
             installed_at: None,
+            theme_base_offset: 0,
         }
     }
 }
