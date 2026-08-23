@@ -88,6 +88,18 @@ object-src 'none'
 
 ---
 
+## Temporary Dependency Advisory Exception
+
+`RUSTSEC-2024-0429` applies to `glib 0.18.5`, which enters the dependency graph through Tauri's Linux WebKit/GTK support. The current Tauri and WebKit crate releases do not provide a compatible upgrade to the patched `glib 0.20` line.
+
+This advisory is temporarily accepted because ChronoWard is not currently distributed for Linux. Windows releases do not load this Linux GTK dependency. The exception does not permit suppressing the advisory from audit output or publishing a Linux build while it remains unresolved.
+
+- **Accepted:** 2026-08-24
+- **Review trigger:** Before any Linux release, or when Tauri provides a compatible patched dependency path
+- **Required action:** Re-run `cargo audit --deny unsound`, upgrade to the maintained dependency path, and complete Linux-specific testing before distribution
+
+---
+
 ## Reporting Vulnerabilities
 
 To report a security vulnerability, please open a report via GitHub [Security Advisories](../../security/advisories/new) or contact the project maintainers directly.
