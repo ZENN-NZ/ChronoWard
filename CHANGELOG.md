@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.5] - 2026-08-24
+
+### Security and Stability
+- Locked the app's JavaScript and Rust library versions so installs and builds use the same reviewed packages.
+- Aligned the Tauri packages to prevent development startup version warnings.
+- Updated a Rust library to fix a reported thread-safety issue.
+- Documented the temporary Linux-only dependency exception. Linux builds will not be distributed until that issue is resolved.
+
+---
+
 ## [2.0.4] - 2026-08-12
 
 ### Fixed
