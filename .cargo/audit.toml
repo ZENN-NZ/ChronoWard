@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+    # Linux-only Tauri GTK dependency; see SECURITY.md for scope and review trigger.
+    "RUSTSEC-2024-0429",
+]
+
+[output]
+deny = ["unsound"]
+quiet = false
