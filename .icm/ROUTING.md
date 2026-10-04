@@ -9,6 +9,7 @@
 | **03** | `03_core_implementation` | Tauri v2 multi-window backend and ES6 modular reactive frontend | ✅ Completed | Code & IPC interface sign-off |
 | **04** | `04_verification_and_testing` | Unit tests for frontend utils, tickets, backend crypto, state, and scheduler | ✅ Verified | 100% test suite pass rate |
 | **05** | `05_release_packaging` | Align version numbers (v2.0.5), sync changelog, and prepare release artifact | 🟡 In Progress | Version & dependency review |
+| **06** | `06_code_review` | Cross-layer code review of backend, frontend, config and tests | 🟠 Awaiting Triage | Finding triage; Critical/High block Stage 05 |
 
 ---
 
@@ -63,3 +64,9 @@
 - **Primary Input:** Clean test run, updated CHANGELOG, and pinned dependencies across manifests.
 - **Deliverables:** `output/release_manifest_v2.0.5.md`, `output/version_diff_analysis.md`.
 - **Handoff:** Human sign-off triggers tag creation (`git tag v2.0.5`) and binary compilation.
+
+### Stage 06: Code Review
+- **Path:** `06_code_review/`
+- **Primary Input:** Layer 3 config (architecture, security policy, data schema), Stage 02/03 outputs, and the full source tree.
+- **Deliverables:** `output/code_review_report.md`.
+- **Handoff:** Accepted Critical/High findings go back to Stage 03 as rework, with regression tests in Stage 04. They block Stage 05 sign-off.

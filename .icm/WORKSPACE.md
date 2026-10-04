@@ -64,5 +64,8 @@
 ├── 05_release_packaging/            # Stage 5: Version alignment (2.0.5), changelog, and release bundles
 │   ├── CONTEXT.md
 │   └── output/
+├── 06_code_review/                  # Stage 6: Cross-layer code review & severity-ranked findings
+│   ├── CONTEXT.md
+│   └── output/
 └── scripts/                         # Deterministic verification and testing automation scripts
 ```
