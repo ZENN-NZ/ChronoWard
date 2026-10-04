@@ -161,6 +161,9 @@ pub struct AppState {
 
     /// Cached encryption key retrieved from OS keychain at startup.
     pub crypto_key: Option<SecretVec<u8>>,
+
+    /// Runtime flag to block all writes if a critical load fails (e.g. decrypt/parse).
+    pub write_protected: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -181,6 +184,7 @@ impl AppState {
             warning_active: Mutex::new(false),
             write_lock: tokio::sync::Mutex::new(()),
             crypto_key,
+            write_protected: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -276,6 +280,12 @@ macro_rules! guard_write {
         if let Some(ref info) = $state.emergency_mode {
             return Err(
                 serde_json::to_string(&$crate::state::WriteBlockedError::new(&info.reason))
+                    .unwrap_or_else(|_| "WRITE_BLOCKED_EMERGENCY_MODE".to_string()),
+            );
+        }
+        if $state.write_protected.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                serde_json::to_string(&$crate::state::WriteBlockedError::new("Data corrupted or unreadable"))
                     .unwrap_or_else(|_| "WRITE_BLOCKED_EMERGENCY_MODE".to_string()),
             );
         }

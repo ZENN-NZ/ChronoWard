@@ -42,6 +42,7 @@ pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
         Ok(res) => res.into_plaintext(),
         Err(e) => {
             warn!("Failed to decrypt timers.json ({e}) — returning empty");
+            state.write_protected.store(true, std::sync::atomic::Ordering::SeqCst);
             return Ok(serde_json::json!({}));
         }
     };
@@ -53,6 +54,7 @@ pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
         }
         Err(e) => {
             warn!("timers.json is corrupt ({e}) — returning empty");
+            state.write_protected.store(true, std::sync::atomic::Ordering::SeqCst);
             Ok(serde_json::json!({}))
         }
     }

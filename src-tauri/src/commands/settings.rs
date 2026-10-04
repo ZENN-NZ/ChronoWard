@@ -54,12 +54,14 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
             }
             Err(e) => {
                 warn!("Failed to decrypt settings.json ({e}) — using defaults");
+                state.write_protected.store(true, std::sync::atomic::Ordering::SeqCst);
                 return Ok(Settings::default());
             }
         };
 
         serde_json::from_str::<Settings>(&plaintext).unwrap_or_else(|e| {
             warn!("settings.json parse error ({e}) — using defaults");
+            state.write_protected.store(true, std::sync::atomic::Ordering::SeqCst);
             Settings::default()
         })
     } else {

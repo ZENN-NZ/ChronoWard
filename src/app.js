@@ -48,7 +48,7 @@ async function init() {
   const sheetsResult = await invoke('load_sheets');
 
   // Handle emergency mode (Decision 1c-ii)
-  if (sheetsResult.ok === false && sheetsResult.code === 'EMERGENCY_MODE') {
+  if (sheetsResult.ok === false) {
     enterEmergencyMode(sheetsResult);
     // Still load settings (they may be readable even in emergency mode)
     // and render a read-only view of whatever we have
@@ -134,11 +134,16 @@ function enterEmergencyMode(info) {
     banner.classList.remove('hidden');
     const msgEl = banner.querySelector('.emergency-text');
     if (msgEl) {
-      msgEl.textContent = info.encryptedDataExists
-        ? `Read-only mode: your timesheet data is encrypted but the OS keychain is unavailable. ` +
-          `No data has been lost. Contact your IT administrator to restore keychain access.`
-        : `Read-only mode: the OS keychain is unavailable. ` +
-          `Data cannot be saved until the keychain is restored.`;
+      if (info.code === 'DECRYPT_FAILED') {
+        msgEl.textContent = `Read-only mode: failed to decrypt your data. ` +
+          `No data has been lost. Reason: ${info.reason || 'Unknown error'}`;
+      } else {
+        msgEl.textContent = info.encryptedDataExists
+          ? `Read-only mode: your timesheet data is encrypted but the OS keychain is unavailable. ` +
+            `No data has been lost. Contact your IT administrator to restore keychain access.`
+          : `Read-only mode: the OS keychain is unavailable. ` +
+            `Data cannot be saved until the keychain is restored.`;
+      }
     }
   }
 
