@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChronoWard Data Models",
+  "definitions": {
+    "TaskRow": {
+      "type": "object",
+      "required": ["id", "name", "hours"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "hours": { "type": "number", "minimum": 0 },
+        "category": { "type": "string" },
+        "ticket": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{0,12}$"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "SheetDay": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/TaskRow" }
+    },
+    "SheetsStore": {
+      "type": "object",
+      "patternProperties": {
+        "^[0-9]{4}-[0-9]{2}-[0-9]{2}$": { "$ref": "#/definitions/SheetDay" }
+      }
+    },
+    "TimerItem": {
+      "type": "object",
+      "required": ["id", "name", "seconds", "running"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "seconds": { "type": "integer", "minimum": 0 },
+        "running": { "type": "boolean" },
+        "category": { "type": "string" },
+        "ticket": { "type": "string", "pattern": "^[A-Za-z0-9_-]{0,12}$" },
+        "targetMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Settings": {
+      "type": "object",
+      "properties": {
+        "theme": { "type": "string" },
+        "themeBaseOffset": { "type": "integer", "minimum": 0 },
+        "autoRotateTheme": { "type": "boolean" },
+        "hourIncrement": { "type": "number", "minimum": 0.01 },
+        "overlayPosition": {
+          "type": "string",
+          "enum": ["top-right", "top-left", "bottom-right", "bottom-left"]
+        },
+        "installedAt": { "type": "integer" },
+        "themeSetAt": { "type": "integer" }
+      }
+    }
+  }
+}
