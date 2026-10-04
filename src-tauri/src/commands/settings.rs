@@ -129,14 +129,36 @@ pub async fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), S
     let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
     let tmp_path = path.with_extension(format!("json.tmp.{}", timestamp));
 
-    if let Err(e) = tokio::fs::write(&tmp_path, content).await {
-        let _ = tokio::fs::remove_file(&tmp_path).await;
-        return Err(format!("Failed to write temp file {:?}: {e}", tmp_path));
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| format!("Failed to create temp file {:?}: {e}", tmp_path))?;
+        if let Err(e) = file.write_all(content.as_bytes()).await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("Failed to write temp file {:?}: {e}", tmp_path));
+        }
+        if let Err(e) = file.sync_all().await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("Failed to sync temp file {:?}: {e}", tmp_path));
+        }
+    }
+
+    let bak_path = path.with_extension("json.bak");
+    if path.exists() {
+        let _ = tokio::fs::rename(path, &bak_path).await;
     }
 
     if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
         let _ = tokio::fs::remove_file(&tmp_path).await;
         return Err(format!("Failed to rename temp file to {:?}: {e}", path));
+    }
+
+    #[cfg(target_family = "unix")]
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = tokio::fs::File::open(parent).await {
+            let _ = dir.sync_all().await;
+        }
     }
 
     Ok(())

@@ -123,6 +123,30 @@ async function init() {
       invoke('minimize_to_tray').catch(() => {});
     }
   }, 10000);
+
+  // Midnight rollover detection
+  setInterval(() => {
+    const realToday = getTodayString();
+    if (currentDate !== realToday && !isEmergencyMode) {
+      // If user was viewing the old "today", move them to the new today automatically
+      if (document.getElementById('selectedDate').value === currentDate) {
+        saveCurrentSheet();
+        currentDate = realToday;
+        document.getElementById('selectedDate').value = currentDate;
+        loadSheetForDate(currentDate);
+        renderWeeklyCompletion();
+
+        // Also recalculate theme
+        if (settings.autoRotateTheme !== false) {
+          const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
+          const baseOffset = settings.themeBaseOffset || 0;
+          const activeTheme = THEMES[(baseOffset + W) % THEMES.length].id;
+          applyTheme(activeTheme, false);
+          renderThemeGrid();
+        }
+      }
+    }
+  }, 60000);
 }
 
 // ── Emergency mode UI ─────────────────────────────────────────────────────────
@@ -429,6 +453,7 @@ function syncProjectModeFromSettings() {
 
 // ---- View switching ----
 function switchView(viewId) {
+  if (!['timesheet', 'timesheets-view', 'settings'].includes(viewId)) return;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`view-${viewId}`).classList.add('active');

@@ -28,11 +28,11 @@ pub fn run() {
     ensure_data_dir(&data_dir);
     cleanup_temp_files(&data_dir);
 
-    let (keychain_status, crypto_key) = probe_keychain();
+    let encrypted_exists = check_encrypted_data_exists(&data_dir);
+    let (keychain_status, crypto_key) = probe_keychain(encrypted_exists);
 
     let emergency = match &keychain_status {
         KeychainStatus::Unavailable(reason) => {
-            let encrypted_exists = check_encrypted_data_exists(&data_dir);
             warn!("Keychain unavailable: {reason}. Encrypted data exists: {encrypted_exists}");
             Some((reason.clone(), encrypted_exists))
         }

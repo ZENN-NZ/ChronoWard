@@ -47,8 +47,8 @@ pub enum KeychainStatus {
 /// On success, also ensures a key exists (creates one if this is a fresh
 /// install). This means first-run key generation happens here, not lazily
 /// during the first save, so we fail fast rather than at save time.
-pub fn probe_keychain() -> (KeychainStatus, Option<SecretVec<u8>>) {
-    match ensure_key_exists() {
+pub fn probe_keychain(encrypted_data_exists: bool) -> (KeychainStatus, Option<SecretVec<u8>>) {
+    match ensure_key_exists(encrypted_data_exists) {
         Ok((key, is_new_key)) => {
             info!("Keychain probe: available (is_new_key={is_new_key})");
             (KeychainStatus::Available { is_new_key }, Some(SecretVec::new(key)))
@@ -63,7 +63,7 @@ pub fn probe_keychain() -> (KeychainStatus, Option<SecretVec<u8>>) {
 /// Retrieves the encryption key from the OS keychain.
 /// Creates a new random key if one doesn't exist yet (first run).
 /// Returns tuple of (key bytes, is_new_key boolean).
-fn ensure_key_exists() -> Result<(Vec<u8>, bool)> {
+fn ensure_key_exists(encrypted_data_exists: bool) -> Result<(Vec<u8>, bool)> {
     let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .context("Failed to create keychain entry handle")?;
 
@@ -83,6 +83,9 @@ fn ensure_key_exists() -> Result<(Vec<u8>, bool)> {
             Ok((key, false))
         }
         Err(keyring::Error::NoEntry) => {
+            if encrypted_data_exists {
+                return Err(anyhow!("key missing for existing encrypted data"));
+            }
             // First run — generate and store a new key
             info!("No keychain entry found — generating new encryption key");
             let key = generate_random_key()?;
@@ -324,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_two_encryptions_produce_different_ciphertext() {
-        let (status, key) = probe_keychain();
+        let (status, key) = probe_keychain(false);
         if matches!(status, KeychainStatus::Available { .. }) {
             let key = key.unwrap();
             let plaintext = "same plaintext";
