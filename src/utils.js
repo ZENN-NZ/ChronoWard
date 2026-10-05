@@ -71,3 +71,27 @@ export function getWeekdayDates(dateStr) {
   }
   return dates;
 }
+
+export function validateHudPayload(payload) {
+  if (!payload || !payload.date || !payload.row || typeof payload.date !== 'string') {
+    return { isValid: false, error: 'Invalid payload' };
+  }
+  
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.date)) {
+    return { isValid: false, error: 'Invalid date format' };
+  }
+
+  let hours = parseFloat(payload.row.hours) || 0;
+  hours = Math.max(0, Math.min(24, hours));
+
+  const safeRow = {
+    timerId: typeof payload.row.timerId === 'string' ? payload.row.timerId : generateId(),
+    task: String(payload.row.task || ''),
+    hours: hours,
+    ot: Boolean(payload.row.ot),
+    ticketNum: String(payload.row.ticketNum || ''),
+    description: String(payload.row.description || '')
+  };
+
+  return { isValid: true, safeRow };
+}

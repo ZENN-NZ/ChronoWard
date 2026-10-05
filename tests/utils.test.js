@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeCsvCell, escHtml, parseTicketNum } from '../src/utils.js';
+import { sanitizeCsvCell, escHtml, parseTicketNum, validateHudPayload } from '../src/utils.js';
 
 test('sanitizeCsvCell preserves numeric 0', () => {
   assert.equal(sanitizeCsvCell(0), '"0"');
@@ -42,10 +42,33 @@ test('parseTicketNum validates Dual 12/12 prefix and integer ID constraints', ()
   assert.deepEqual(parseTicketNum('123456789012'), { prefix: '', id: '123456789012', isValid: true });
   assert.deepEqual(parseTicketNum('SUPPORT'), { prefix: 'SUPPORT', id: '', isValid: true });
 
-  // Invalid cases (> 12 chars prefix or > 12 digits ID)
+// Invalid cases (> 12 chars prefix or > 12 digits ID)
   assert.equal(parseTicketNum('INFRASTRUCTURE-12345').isValid, false); // Prefix "INFRASTRUCTURE-" is 15 chars
   assert.equal(parseTicketNum('NINJA-1234567890123').isValid, false); // ID "1234567890123" is 13 digits
   assert.equal(parseTicketNum('1234567890123').isValid, false); // ID is 13 digits
 });
 
+test('validateHudPayload rejects invalid dates and payloads', () => {
+  assert.equal(validateHudPayload(null).isValid, false);
+  assert.equal(validateHudPayload({}).isValid, false);
+  assert.equal(validateHudPayload({ date: '2025/01/01', row: {} }).isValid, false); // wrong format
+  assert.equal(validateHudPayload({ date: '2025-01-01' }).isValid, false); // missing row
+});
 
+test('validateHudPayload clamps hours and sanitizes row', () => {
+  const result = validateHudPayload({
+    date: '2026-01-01',
+    row: {
+      timerId: 123, // not a string
+      task: null, // should become empty string
+      hours: 25, // should clamp to 24
+      ot: 'yes', // should become true/false (truthy here)
+      ticketNum: undefined
+    }
+  });
+  
+  assert.equal(result.isValid, true);
+  assert.equal(result.safeRow.hours, 24);
+  assert.equal(result.safeRow.task, ''); // fallback to empty string
+  assert.equal(typeof result.safeRow.timerId, 'string');
+});

@@ -163,3 +163,28 @@ pub async fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), S
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[tokio::test]
+    async fn test_atomic_write_creates_bak_and_target() {
+        let temp_dir = std::env::temp_dir().join(format!("chronoward_test_atomic_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let path = temp_dir.join("test.json");
+
+        // First write (no bak should exist yet)
+        atomic_write(&path, "first").await.unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
+        assert!(!path.with_extension("json.bak").exists());
+
+        // Second write (should rotate to bak)
+        atomic_write(&path, "second").await.unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(fs::read_to_string(path.with_extension("json.bak")).unwrap(), "first");
+
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+}

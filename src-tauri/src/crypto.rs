@@ -327,17 +327,14 @@ mod tests {
 
     #[test]
     fn test_two_encryptions_produce_different_ciphertext() {
-        let (status, key) = probe_keychain(false);
-        if matches!(status, KeychainStatus::Available { .. }) {
-            let key = key.unwrap();
-            let plaintext = "same plaintext";
-            let ct1 = encrypt(plaintext, &key).unwrap();
-            let ct2 = encrypt(plaintext, &key).unwrap();
-            assert_ne!(ct1, ct2);
-            assert_eq!(
-                decrypt(&ct1, Some(&key), false).unwrap().into_plaintext(),
-                decrypt(&ct2, Some(&key), false).unwrap().into_plaintext()
-            );
-        }
+        let key = SecretVec::new(vec![42u8; 32]);
+        let plaintext = "same plaintext";
+        let ct1 = encrypt(plaintext, &key).unwrap();
+        let ct2 = encrypt(plaintext, &key).unwrap();
+        assert_ne!(ct1, ct2);
+        assert_eq!(
+            decrypt(&ct1, Some(&key), false).unwrap().into_plaintext(),
+            decrypt(&ct2, Some(&key), false).unwrap().into_plaintext()
+        );
     }
 }

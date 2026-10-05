@@ -1,4 +1,4 @@
-import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum } from './utils.js';
+import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum, validateHudPayload } from './utils.js';
 import * as api from './api.js';
 import { store } from './state.js';
 import * as timersModule from './timers.js';
@@ -72,6 +72,10 @@ async function init() {
   const installedAt = settings.installedAt || Date.now();
   if (!settings.installedAt) {
     settings.installedAt = installedAt;
+    if (!isEmergencyMode) {
+      store.settings = settings;
+      invoke('save_settings', { settings }).catch(err => console.error(err));
+    }
   }
 
   let activeTheme = settings.theme || 'midnight';
@@ -250,18 +254,41 @@ async function setupEventListeners() {
     timers = newTimers || {};
   });
 
-  store.on('hud-entry-added', (payload) => {
-    if (!payload || !payload.date || !payload.row) return;
+  store.on('hud-entry-added', async (payload) => {
+    if (!payload || !payload.date || !payload.row || typeof payload.date !== 'string') {
+      emit('hud-entry-failed', { error: 'Invalid payload' });
+      return;
+    }
+    
+    const validation = validateHudPayload(payload);
+    if (!validation.isValid) {
+      emit('hud-entry-failed', { error: validation.error });
+      return;
+    }
+    const safeRow = validation.safeRow;
 
     if (currentDate === payload.date) {
-      addRow(payload.row);
-      saveCurrentSheet();
+      addRow(safeRow);
+      // Let saveCurrentSheet queue it
+      saveCurrentSheet().then(() => {
+        emit('hud-entry-saved', { date: payload.date });
+      }).catch(err => {
+        emit('hud-entry-failed', { error: err.toString() });
+      });
       renderWeeklyCompletion();
     } else {
       if (!sheets[payload.date]) sheets[payload.date] = [];
-      sheets[payload.date].push(payload.row);
+      sheets[payload.date].push(safeRow);
       if (!isEmergencyMode) {
-        invoke('save_sheets', { sheets }).catch(console.error);
+        try {
+          await invoke('save_sheets', { sheets });
+          emit('hud-entry-saved', { date: payload.date });
+        } catch (err) {
+          console.error(err);
+          emit('hud-entry-failed', { error: err.toString() });
+        }
+      } else {
+        emit('hud-entry-failed', { error: 'Read-only mode' });
       }
     }
   });
@@ -556,26 +583,46 @@ function loadSheetForDate(date) {
   restoreTimers();
 }
 
-function saveCurrentSheet() {
+let isSaving = false;
+let savePending = false;
+
+async function saveCurrentSheet() {
   if (isEmergencyMode) return;
   sheets[currentDate] = collectRows();
-  invoke('save_sheets', { sheets }).catch(err => {
-    // If save fails (e.g. keychain went down mid-session), show a warning
-    // but don't lose the in-memory data
+  
+  if (isSaving) {
+    savePending = true;
+    return;
+  }
+  
+  isSaving = true;
+  try {
+    await invoke('save_sheets', { sheets });
+  } catch (err) {
     console.error('save_sheets failed:', err);
-    if (err?.includes?.('WRITE_BLOCKED_EMERGENCY_MODE')) {
+    showToast(`⚠ Save failed: ${err}`, 5000);
+    if (typeof err === 'string' && err.includes('WRITE_BLOCKED_EMERGENCY_MODE')) {
       enterEmergencyMode({ encryptedDataExists: true });
     }
-  });
+  } finally {
+    isSaving = false;
+    if (savePending) {
+      savePending = false;
+      saveCurrentSheet();
+    }
+  }
 }
 
 function collectRows() {
   const rows = [];
   document.querySelectorAll('#timesheetBody tr').forEach(tr => {
+    let hours = parseFloat(tr.querySelector('.hours-input')?.value) || 0;
+    hours = Math.max(0, Math.min(24, hours));
+    
     rows.push({
       timerId:     tr.dataset.timerId,
       task:        tr.querySelector('.task-input')?.value || '',
-      hours:       parseFloat(tr.querySelector('.hours-input')?.value) || 0,
+      hours:       hours,
       ot:          tr.querySelector('.ot-toggle')?.classList.contains('active') || false,
       ticketNum:   tr.querySelector('.ticket-input')?.value || '',
       description: tr.querySelector('.desc-btn')?.dataset.desc || '',
@@ -1316,7 +1363,7 @@ function renderDateRangeTimesheets() {
       html += `
         <tr>
           <td style="font-weight:500;">${escHtml(r.task || '')}</td>
-          <td style="font-family:var(--font-mono);">${r.hours || 0}</td>
+          <td style="font-family:var(--font-mono);">${Number(r.hours || 0)}</td>
           <td>${r.ot ? '<span style="color:var(--ot);font-weight:600;">Yes</span>' : 'No'}</td>
           <td style="font-family:var(--font-mono);">${escHtml(r.ticketNum || '')}</td>
           <td style="text-align:center;">
@@ -1439,15 +1486,18 @@ function copyTaskText(btn, text) {
 }
 
 // ---- Hours Warning ----
+let isWarningBannerActive = false;
+
 function setupHoursWarning() {
-  // check-hours-warning is now wired via listen() in setupEventListeners()
-  setInterval(() => {
-    if (currentDate === getTodayString()) checkHoursWarning();
-  }, 60000);
+  // check-hours-warning is wired via listen() in setupEventListeners() from the Rust scheduler.
+  // Duplicate interval removed.
 }
 
 function checkHoursWarning() {
-  if (currentDate !== getTodayString()) return;
+  if (currentDate !== getTodayString()) {
+    hideBanner(); // M3: hide banner when leaving today
+    return;
+  }
   const now = new Date();
   const [wh, wm]    = (settings.warningTime || '16:30').split(':').map(Number);
   const warningMins = wh * 60 + wm;
@@ -1457,10 +1507,8 @@ function checkHoursWarning() {
   const minHours = settings.minHoursWarning || 7.5;
   if (total < minHours) {
     showBanner(total, minHours);
-    invoke('set_always_on_top', { value: true }).catch(() => {});
   } else {
     hideBanner();
-    invoke('set_always_on_top', { value: false }).catch(() => {});
   }
 }
 
@@ -1471,13 +1519,20 @@ function showBanner(current, required) {
     reqText.innerHTML = `Daily tracking status: <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h logged towards <strong id="bannerTargetHours">${required}</strong>h target`;
   }
   banner.classList.remove('hidden');
-  invoke('set_warning_active', { active: true }).catch(() => {});
-  emit('warning-active').catch(() => {});
+  
+  if (!isWarningBannerActive) {
+    isWarningBannerActive = true;
+    invoke('set_warning_active', { active: true }).catch(() => {});
+    emit('warning-active').catch(() => {});
+  }
 }
 
 function hideBanner() {
   document.getElementById('hoursWarningBanner').classList.add('hidden');
-  invoke('set_warning_active', { active: false }).catch(() => {});
+  if (isWarningBannerActive) {
+    isWarningBannerActive = false;
+    invoke('set_warning_active', { active: false }).catch(() => {});
+  }
   invoke('set_always_on_top', { value: false }).catch(() => {});
 }
 

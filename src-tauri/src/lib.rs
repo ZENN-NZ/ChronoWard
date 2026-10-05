@@ -171,7 +171,7 @@ pub fn run() {
                 if let Some(main) = app_handle2.get_webview_window("main") {
                     let _ = main.show();
                     let _ = main.unminimize();
-                    let _ = main.set_focus();
+                    let _ = main.request_user_attention(Some(tauri::UserAttentionType::Critical));
                 }
             });
 
