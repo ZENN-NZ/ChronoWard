@@ -57,11 +57,6 @@ pub fn minimize_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn show_overlay_cmd(app: tauri::AppHandle) {
-    show_overlay(&app);
-}
-
 pub fn show_overlay(app: &tauri::AppHandle) {
     if let Some(overlay) = app.get_webview_window("overlay") {
         let position = {
@@ -73,12 +68,11 @@ pub fn show_overlay(app: &tauri::AppHandle) {
                 .unwrap_or_else(|| "top-right".to_string())
         };
 
-        if let Ok(Some(monitor)) = overlay.primary_monitor() {
+        if let Ok(Some(monitor)) = overlay.current_monitor() {
             let size = monitor.size();
             let scale = monitor.scale_factor();
             let win_size = 64.0;
             let margin = 12.0;
-            let taskbar_margin = 48.0;
 
             let monitor_w = size.width as f64 / scale;
             let monitor_h = size.height as f64 / scale;
@@ -86,11 +80,11 @@ pub fn show_overlay(app: &tauri::AppHandle) {
             let (x, y) = match position.as_str() {
                 "top-left" => (margin, margin),
                 "center-left" => (margin, (monitor_h - win_size) / 2.0),
-                "bottom-left" => (margin, monitor_h - win_size - margin - taskbar_margin),
+                "bottom-left" => (margin, monitor_h - win_size - margin),
                 "center-right" => (monitor_w - win_size - margin, (monitor_h - win_size) / 2.0),
                 "bottom-right" => (
                     monitor_w - win_size - margin,
-                    monitor_h - win_size - margin - taskbar_margin,
+                    monitor_h - win_size - margin,
                 ),
                 _ => (monitor_w - win_size - margin, margin),
             };

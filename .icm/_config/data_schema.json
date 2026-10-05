@@ -4,17 +4,17 @@
   "definitions": {
     "TaskRow": {
       "type": "object",
-      "required": ["id", "name", "hours"],
+      "required": ["timerId", "task", "hours"],
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
+        "timerId": { "type": "string" },
+        "task": { "type": "string" },
         "hours": { "type": "number", "minimum": 0 },
-        "category": { "type": "string" },
-        "ticket": {
+        "ot": { "type": "boolean" },
+        "ticketNum": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]{0,12}$"
+          "pattern": "^[A-Za-z0-9_-]{0,24}$"
         },
-        "notes": { "type": "string" }
+        "description": { "type": "string" }
       }
     },
     "SheetDay": {
@@ -29,16 +29,16 @@
     },
     "TimerItem": {
       "type": "object",
-      "required": ["id", "name", "seconds", "running"],
+      "required": ["elapsed", "running"],
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "seconds": { "type": "integer", "minimum": 0 },
+        "elapsed": { "type": "integer", "minimum": 0 },
         "running": { "type": "boolean" },
-        "category": { "type": "string" },
-        "ticket": { "type": "string", "pattern": "^[A-Za-z0-9_-]{0,12}$" },
-        "targetMinutes": { "type": "integer", "minimum": 0 }
+        "startedAt": { "type": ["integer", "null"] }
       }
+    },
+    "TimersStore": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/TimerItem" }
     },
     "Settings": {
       "type": "object",
@@ -49,10 +49,13 @@
         "hourIncrement": { "type": "number", "minimum": 0.01 },
         "overlayPosition": {
           "type": "string",
-          "enum": ["top-right", "top-left", "bottom-right", "bottom-left"]
+          "enum": ["top-right", "top-left", "bottom-right", "bottom-left", "center-left", "center-right"]
         },
         "installedAt": { "type": "integer" },
-        "themeSetAt": { "type": "integer" }
+        "themeSetAt": { "type": "integer" },
+        "warningTime": { "type": "string" },
+        "minHoursWarning": { "type": "number" },
+        "auto_start": { "type": "boolean" }
       }
     }
   }

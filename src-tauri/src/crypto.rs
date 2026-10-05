@@ -25,9 +25,9 @@ const KEYCHAIN_ACCOUNT: &str = "chronoward-data-key";
 const PREFIX_KEYCHAIN: &str = "enc1:";
 
 // ── Key size ──────────────────────────────────────────────────────────────────
-// 32 bytes = 256-bit key for AES-256-GCM (used internally by the OS keychain
-// encryption layer; we store a random key in the keychain and use it to
-// derive the actual encryption via the OS APIs).
+// 32 bytes = 256-bit key for AES-256-GCM. We store this randomly generated key
+// in the OS keychain and use it directly for encryption/decryption of the
+// local timesheet data files.
 const KEY_SIZE: usize = 32;
 
 /// Represents the availability state of the keychain at runtime.
@@ -69,8 +69,9 @@ fn ensure_key_exists(encrypted_data_exists: bool) -> Result<(Vec<u8>, bool)> {
 
     match entry.get_password() {
         Ok(stored) => {
+            let stored_secret = secrecy::SecretString::from(stored);
             // Key exists — decode from hex and validate length
-            let key = hex::decode(&stored)
+            let key = hex::decode(stored_secret.expose_secret())
                 .context("Keychain key is not valid hex — keychain may be corrupt")?;
             if key.len() != KEY_SIZE {
                 return Err(anyhow!(
@@ -89,9 +90,9 @@ fn ensure_key_exists(encrypted_data_exists: bool) -> Result<(Vec<u8>, bool)> {
             // First run — generate and store a new key
             info!("No keychain entry found — generating new encryption key");
             let key = generate_random_key()?;
-            let hex_key = hex::encode(&key);
+            let hex_key = secrecy::SecretString::from(hex::encode(&key));
             entry
-                .set_password(&hex_key)
+                .set_password(hex_key.expose_secret())
                 .context("Failed to store new encryption key in keychain")?;
             info!("New encryption key stored in keychain");
             Ok((key, true))
@@ -158,7 +159,7 @@ pub fn decrypt(stored: &str, key: Option<&SecretVec<u8>>, is_new_key: bool) -> R
         let key = key.ok_or_else(|| anyhow!("OS keychain key unavailable for decryption"))?;
         let decrypted = decrypt_enc1(payload, key)?;
         Ok(DecryptResult::Decrypted(decrypted))
-    } else if (trimmed.starts_with('{') || trimmed.starts_with('[')) && !trimmed.starts_with("enc") {
+    } else if trimmed.starts_with('{') || trimmed.starts_with('[') {
         if key.is_some() && !is_new_key {
             return Err(anyhow!(
                 "Insecure downgrade attack blocked: Plaintext payload provided while an established OS keychain key is active."

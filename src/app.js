@@ -15,7 +15,6 @@ let currentDate          = '';
 let projectMode          = false;
 let detailedMode           = false;
 let activeDescTimerId    = null;
-let isEmergencyMode      = false;    // NEW: set true if keychain unavailable
 let isCleanSlateMode     = false;    // Clean Slate Isolation Mode state
 
 let rowCounter      = 0;
@@ -38,6 +37,7 @@ const THEMES = [
 
 // ---- Init ----
 async function init() {
+  try {
   // Wire up event listeners BEFORE loading data
   setupStaticListeners();
   setupEventListeners();
@@ -72,7 +72,7 @@ async function init() {
   const installedAt = settings.installedAt || Date.now();
   if (!settings.installedAt) {
     settings.installedAt = installedAt;
-    if (!isEmergencyMode) {
+    if (!store.isEmergencyMode) {
       store.settings = settings;
       invoke('save_settings', { settings }).catch(err => console.error(err));
     }
@@ -106,6 +106,10 @@ async function init() {
   setupKeyboardShortcuts();
 
   document.getElementById('selectedDate').addEventListener('change', (e) => {
+    if (!e.target.value) {
+      e.target.value = currentDate;
+      return;
+    }
     saveCurrentSheet();
     currentDate = e.target.value;
     loadSheetForDate(currentDate);
@@ -131,7 +135,7 @@ async function init() {
   // Midnight rollover detection
   setInterval(() => {
     const realToday = getTodayString();
-    if (currentDate !== realToday && !isEmergencyMode) {
+    if (currentDate !== realToday && !store.isEmergencyMode) {
       // If user was viewing the old "today", move them to the new today automatically
       if (document.getElementById('selectedDate').value === currentDate) {
         saveCurrentSheet();
@@ -151,12 +155,16 @@ async function init() {
       }
     }
   }, 60000);
+  } catch (err) {
+    console.error('Init failed:', err);
+    document.body.innerHTML = `<div style="padding: 2rem; color: #ff5555; font-family: monospace;"><h2>Init Failed</h2><p>${escHtml(err.message || String(err))}</p></div>`;
+  }
 }
 
 // ── Emergency mode UI ─────────────────────────────────────────────────────────
 
 function enterEmergencyMode(info) {
-  isEmergencyMode = true;
+  store.isEmergencyMode = true;
   const banner = document.getElementById('emergencyModeBanner');
   if (banner) {
     banner.classList.remove('hidden');
@@ -279,7 +287,7 @@ async function setupEventListeners() {
     } else {
       if (!sheets[payload.date]) sheets[payload.date] = [];
       sheets[payload.date].push(safeRow);
-      if (!isEmergencyMode) {
+      if (!store.isEmergencyMode) {
         try {
           await invoke('save_sheets', { sheets });
           emit('hud-entry-saved', { date: payload.date });
@@ -376,7 +384,7 @@ function applyTheme(themeId, shouldSave = true) {
 
     settings.theme = themeId;
     settings.themeBaseOffset = baseOffset;
-    if (!isEmergencyMode) {
+    if (!store.isEmergencyMode) {
       store.settings = settings;
       invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
     }
@@ -440,7 +448,7 @@ function applySettingsToUI() {
 }
 
 async function saveSettings() {
-  if (isEmergencyMode) { showToast('⚠ Read-only mode — settings cannot be saved'); return; }
+  if (store.isEmergencyMode) { showToast('⚠ Read-only mode — settings cannot be saved'); return; }
 
   settings.theme           = settings.theme || 'midnight';
   settings.hourIncrement   = parseFloat(document.getElementById('settingIncrement').value)   || 0.5;
@@ -496,7 +504,7 @@ function toggleProjectMode() {
   document.getElementById('settingProjectMode').checked = projectMode;
   settings.projectMode = projectMode;
   applyProjectMode();
-  if (!isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+  if (!store.isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
 }
 
 function applyProjectMode() {
@@ -512,7 +520,7 @@ function toggleDetailedMode() {
   document.getElementById('settingDetailedMode').checked = detailedMode;
   settings.detailedMode = detailedMode;
   applyDetailedMode();
-  if (!isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+  if (!store.isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
 }
 
 function applyDetailedMode() {
@@ -587,7 +595,7 @@ let isSaving = false;
 let savePending = false;
 
 async function saveCurrentSheet() {
-  if (isEmergencyMode) return;
+  if (store.isEmergencyMode) return;
   sheets[currentDate] = collectRows();
   
   if (isSaving) {
@@ -619,13 +627,22 @@ function collectRows() {
     let hours = parseFloat(tr.querySelector('.hours-input')?.value) || 0;
     hours = Math.max(0, Math.min(24, hours));
     
+    const task = tr.querySelector('.task-input')?.value || '';
+    const ticketNum = tr.querySelector('.ticket-input')?.value || '';
+    const description = tr.querySelector('.desc-btn')?.dataset.desc || '';
+    
+    // Skip entirely blank rows (0 hours and no text content)
+    if (hours === 0 && !task.trim() && !ticketNum.trim() && !description.trim()) {
+      return;
+    }
+    
     rows.push({
       timerId:     tr.dataset.timerId,
-      task:        tr.querySelector('.task-input')?.value || '',
-      hours:       hours,
+      task,
+      hours,
       ot:          tr.querySelector('.ot-toggle')?.classList.contains('active') || false,
-      ticketNum:   tr.querySelector('.ticket-input')?.value || '',
-      description: tr.querySelector('.desc-btn')?.dataset.desc || '',
+      ticketNum,
+      description,
     });
   });
   return rows;
@@ -1115,19 +1132,21 @@ function cleanSlateLogFocus() {
   const projectSelect = document.getElementById('cleanSlateProjectSelect');
   const val = select?.value || 'new';
 
+  const inc = parseFloat(settings.hourIncrement) || 0.5;
+
   if (val === 'new') {
     const taskDesc = customInput?.value.trim() || 'Focus Session';
     const proj = projectSelect?.value || 'General';
     const formattedTask = `[${proj}] ${taskDesc}`;
 
-    addRow({ task: formattedTask, hours: 0.5, ot: false });
+    addRow({ task: formattedTask, hours: inc, ot: false });
     saveCurrentSheet();
-    showToast('✓ Logged 0.5h to new focus task');
+    showToast(`✓ Logged ${inc}h to new focus task`);
     refreshCleanSlateTaskOptions();
   } else {
     stepHours(val, 1);
     saveCurrentSheet();
-    showToast('✓ Logged 0.5h to task');
+    showToast(`✓ Logged ${inc}h to task`);
   }
 }
 
@@ -1191,8 +1210,9 @@ async function exportCSV() {
     lines.push(cols.join(','));
   });
 
+  const contentWithBOM = '\uFEFF' + lines.join('\r\n');
   const result = await invoke('export_csv', {
-    payload: { content: lines.join('\n'), date: dateStr }
+    payload: { content: contentWithBOM, date: dateStr }
   });
   if (result.success) showToast(`Exported ✓`);
 }
@@ -1265,6 +1285,17 @@ function renderDateRangeTimesheets() {
 
   const fromDate = new Date(fromStr + 'T00:00:00');
   const toDate = new Date(toStr + 'T23:59:59');
+
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    container.innerHTML = `<div class="empty-state"><p>Invalid date range selected.</p></div>`;
+    return;
+  }
+
+  // Prevent browser hangs on massive ranges
+  if ((toDate - fromDate) / (1000 * 60 * 60 * 24) > 366) {
+    container.innerHTML = `<div class="empty-state"><p>Date range too large. Maximum is 366 days.</p></div>`;
+    return;
+  }
 
   let totalHours = 0;
   let totalOT = 0;
@@ -1414,74 +1445,6 @@ function renderDateRangeTimesheets() {
         setTimeout(() => { btn.textContent = orig; }, 1500);
       });
     });
-  });
-}
-
-function showImportedDesc(btn, text) {
-  document.getElementById('descModalTextarea').value = text;
-  document.getElementById('descModal').classList.remove('hidden');
-  // read-only context — save on close won't write back since activeDescTimerId is null
-  activeDescTimerId = null;
-}
-
-function parseCSV(text) {
-  const rows = [];
-  let currentRow = [];
-  let currentField = '';
-  let inQuote = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    const next = text[i + 1];
-
-    if (c === '"') {
-      if (inQuote && next === '"') {
-        currentField += '"';
-        i++; // Skip next quote
-      } else {
-        inQuote = !inQuote;
-      }
-    } else if (c === ',' && !inQuote) {
-      currentRow.push(currentField);
-      currentField = '';
-    } else if ((c === '\n' || c === '\r') && !inQuote) {
-      if (c === '\r' && next === '\n') i++;
-      currentRow.push(currentField);
-      if (currentRow.length > 0) rows.push(currentRow);
-      currentRow = [];
-      currentField = '';
-    } else {
-      currentField += c;
-    }
-  }
-  // Flush remaining data
-  if (currentField !== '' || currentRow.length > 0) {
-    currentRow.push(currentField);
-    rows.push(currentRow);
-  }
-
-  if (rows.length < 2) return [];
-
-  const headers = rows[0].map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  return rows.slice(1).map(cols => {
-    const row = {};
-    headers.forEach((h, i) => {
-      const val = (cols[i] || '').trim().replace(/^"|"$/g, '');
-      if      (h === 'task')                                               row.task        = val;
-      else if (h === 'hours')                                              row.hours       = parseFloat(val) || 0;
-      else if (h === 'overtime' || h === 'ot')                             row.ot          = (val.toLowerCase() === 'yes' || val.toLowerCase() === 'true' || val === '1');
-      else if (h === 'ticket #' || h === 'ticket number' || h === 'ticket') row.ticketNum  = val;
-      else if (h === 'description' || h === 'desc')                        row.description = val;
-    });
-    return row;
-  });
-}
-
-function copyTaskText(btn, text) {
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
   });
 }
 

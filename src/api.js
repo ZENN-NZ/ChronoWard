@@ -35,32 +35,6 @@ export async function saveTimers(timers) {
   return await invoke('save_timers', { timers });
 }
 
-export async function exportCSVFile(filename, content) {
-  const { invoke } = getTauri().core;
-  return await invoke('export_csv', { filename, content });
-}
-
-export async function minimizeToTray() {
-  const { invoke } = getTauri().core;
-  return await invoke('minimize_to_tray').catch(() => {});
-}
-
-export async function setAlwaysOnTop(value) {
-  const { invoke } = getTauri().core;
-  return await invoke('set_always_on_top', { value }).catch(() => {});
-}
-
-export async function setWarningActive(active) {
-  const { invoke } = getTauri().core;
-  return await invoke('set_warning_active', { active }).catch(() => {});
-}
-
-export async function listenEvent(event, callback) {
-  const { listen } = getTauri().event;
-  if (listen) {
-    return await listen(event, callback);
-  }
-}
 
 export async function setupIPCListeners(store, onToast) {
   const { listen } = getTauri().event;

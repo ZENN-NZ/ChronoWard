@@ -78,9 +78,6 @@ pub fn run() {
             commands::timers::load_timers,
             commands::timers::save_timers,
             commands::csv::export_csv,
-            commands::csv::import_csv,
-            commands::csv::get_data_dir,
-            commands::window::show_overlay_cmd,
             commands::window::set_always_on_top,
             commands::window::set_warning_active,
             commands::window::is_warning_active,
@@ -92,7 +89,9 @@ pub fn run() {
         .setup(|app| {
             use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
             let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
-            let _ = app.global_shortcut().register(shortcut);
+            if let Err(e) = app.global_shortcut().register(shortcut) {
+                warn!("Failed to register global shortcut: {e}");
+            }
 
             // Set up tray — store the handle so it isn't dropped and disappears
             match tray::setup(app.handle()) {
@@ -107,7 +106,7 @@ pub fn run() {
             // also be used as the minimised-to-tray state. Show it explicitly here.
             if let Some(main) = app.get_webview_window("main") {
                 // Small delay to ensure webview content is loaded before showing
-            let main_clone = main.clone();
+                let main_clone = main.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     let _ = main_clone.show();
@@ -115,53 +114,17 @@ pub fn run() {
                 });
             }
 
-            // Sync autostart state with the OS on startup, relying on settings defaults
-            // if it's the first time running.
-            let auto_start = {
-                let state = app.state::<AppState>();
-                let default_settings = crate::state::Settings::default();
-                let s_path = state.settings_path();
-                if let Ok(raw) = std::fs::read_to_string(&s_path) {
-                    let plaintext = if raw.trim_start().starts_with("enc1:") {
-                        if state.keychain_available() {
-                            state.decrypt(raw.trim())
-                                .map(|r| r.into_plaintext())
-                                .ok()
-                        } else {
-                            None
-                        }
-                    } else {
-                        Some(raw)
-                    };
-                    if let Some(text) = plaintext {
-                        serde_json::from_str::<crate::state::Settings>(&text)
-                            .unwrap_or(default_settings)
-                            .auto_start
-                    } else {
-                        default_settings.auto_start
-                    }
+            // Sync autostart state with the OS on startup.
+            let app_handle_auto = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle_auto.state::<AppState>();
+                let settings = crate::commands::settings::load_settings(state).await.unwrap_or_default();
+                use tauri_plugin_autostart::ManagerExt;
+                let manager = app_handle_auto.autolaunch();
+                if settings.auto_start {
+                    let _ = manager.enable();
                 } else {
-                    default_settings.auto_start
-                }
-            };
-
-            use tauri_plugin_autostart::ManagerExt;
-            let manager = app.autolaunch();
-            if auto_start {
-                let _ = manager.enable();
-            } else {
-                let _ = manager.disable();
-            }
-
-            // overlay-clicked → hide overlay, restore main
-            let app_handle = app.handle().clone();
-            app.listen("overlay-clicked", move |_| {
-                if let Some(overlay) = app_handle.get_webview_window("overlay") {
-                    let _ = overlay.hide();
-                }
-                if let Some(main) = app_handle.get_webview_window("main") {
-                    let _ = main.show();
-                    let _ = main.set_focus();
+                    let _ = manager.disable();
                 }
             });
 

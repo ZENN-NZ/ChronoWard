@@ -79,7 +79,7 @@
     "copyright": "© 2026 Jeremiah Benjamin",
     "category": "Productivity",
     "shortDescription": "Protect your time, meet your goals",
-    "longDescription": "A secure, fully offline timesheet application for focused work logging.",
+    "longDescription": "A secure, fully offline timesheet application for focused work logging. Note: Windows installation requires an internet connection to download the WebView2 bootstrapper if it is not already installed on the system. The Windows installer is currently unsigned and may trigger a SmartScreen warning.",
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",

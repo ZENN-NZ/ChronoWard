@@ -4,6 +4,9 @@
 // ============================
 
 export function generateId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
@@ -11,7 +14,7 @@ export function generateId() {
 }
 
 export function escHtml(str) {
-  return String(str || '')
+  return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -21,8 +24,9 @@ export function escHtml(str) {
 
 export function sanitizeCsvCell(val) {
   let str = String(val ?? '').replace(/"/g, '""');
-  const trimmed = str.trimStart();
-  if (/^[=+\-@\t\r]/.test(trimmed)) {
+  // Check against the raw string for \t and \r triggers,
+  // because trimStart() would remove them before they can be matched
+  if (/^[=+\-@\t\r]/.test(str) || /^[=+\-@\t\r]/.test(str.trimStart())) {
     str = "'" + str;
   }
   return `"${str}"`;
