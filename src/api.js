@@ -57,4 +57,8 @@ export async function setupIPCListeners(store, onToast) {
     store.emit('hud-entry-added', event.payload);
     if (onToast) onToast('⚡ Quick log entry added');
   });
+
+  await listen('shortcut-registration-failed', () => {
+    if (onToast) onToast('⚠ Global shortcut Ctrl+Shift+Space is in use by another app', 6000);
+  });
 }

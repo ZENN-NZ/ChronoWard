@@ -88,14 +88,35 @@ export function validateHudPayload(payload) {
   let hours = parseFloat(payload.row.hours) || 0;
   hours = Math.max(0, Math.min(24, hours));
 
+  const rawTicket = String(payload.row.ticketNum || '').trim();
+  const ticketCheck = parseTicketNum(rawTicket);
+  if (!ticketCheck.isValid) {
+    return { isValid: false, error: 'Invalid ticket number format' };
+  }
+
   const safeRow = {
     timerId: typeof payload.row.timerId === 'string' ? payload.row.timerId : generateId(),
     task: String(payload.row.task || ''),
     hours: hours,
     ot: Boolean(payload.row.ot),
-    ticketNum: String(payload.row.ticketNum || ''),
+    ticketNum: rawTicket,
     description: String(payload.row.description || '')
   };
 
   return { isValid: true, safeRow };
+}
+
+export function evaluateMidnightRollover(lastKnownToday, realToday, currentDate) {
+  if (!lastKnownToday || !realToday || lastKnownToday === realToday) {
+    return {
+      dayChanged: false,
+      shouldMoveCurrentDate: false,
+      nextKnownToday: realToday || lastKnownToday,
+    };
+  }
+  return {
+    dayChanged: true,
+    shouldMoveCurrentDate: currentDate === lastKnownToday,
+    nextKnownToday: realToday,
+  };
 }

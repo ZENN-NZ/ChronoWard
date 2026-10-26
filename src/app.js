@@ -1,4 +1,4 @@
-import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum, validateHudPayload } from './utils.js';
+import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum, validateHudPayload, evaluateMidnightRollover } from './utils.js';
 import * as api from './api.js';
 import { store } from './state.js';
 import * as timersModule from './timers.js';
@@ -48,13 +48,17 @@ async function init() {
   const sheetsResult = await invoke('load_sheets');
 
   // Handle emergency mode (Decision 1c-ii)
+  let pendingEmergencyInfo = null;
   if (sheetsResult.ok === false) {
-    enterEmergencyMode(sheetsResult);
+    store.isEmergencyMode = true;
+    pendingEmergencyInfo = sheetsResult;
     // Still load settings (they may be readable even in emergency mode)
     // and render a read-only view of whatever we have
     sheets = {};
+    store.sheets = sheets;
   } else {
     sheets = sheetsResult.data || {};
+    store.sheets = sheets;
 
     // Warn if corrupt data was quarantined
     if (sheetsResult.warning === 'CORRUPT_DATA_QUARANTINED') {
@@ -67,6 +71,7 @@ async function init() {
   timers = store.timers;
 
   currentDate = getTodayString();
+  store.currentDate = currentDate;
   document.getElementById('selectedDate').value = currentDate;
 
   const installedAt = settings.installedAt || Date.now();
@@ -90,16 +95,21 @@ async function init() {
   applySettingsToUI();
 
   projectMode = settings.projectMode || false;
+  store.projectMode = projectMode;
   document.getElementById('projectModeToggle').checked = projectMode;
   document.getElementById('settingProjectMode').checked = projectMode;
   applyProjectMode();
 
   detailedMode = settings.detailedMode || false;
+  store.detailedMode = detailedMode;
   document.getElementById('detailedModeToggle').checked = detailedMode;
   document.getElementById('settingDetailedMode').checked = detailedMode;
   applyDetailedMode();
 
   loadSheetForDate(currentDate);
+  if (pendingEmergencyInfo) {
+    enterEmergencyMode(pendingEmergencyInfo);
+  }
   restoreTimers();
   setupHoursWarning();
   renderWeeklyCompletion();
@@ -112,6 +122,7 @@ async function init() {
     }
     saveCurrentSheet();
     currentDate = e.target.value;
+    store.currentDate = currentDate;
     loadSheetForDate(currentDate);
     renderWeeklyCompletion();
   });
@@ -133,25 +144,30 @@ async function init() {
   }, 10000);
 
   // Midnight rollover detection
+  let lastKnownToday = getTodayString();
   setInterval(() => {
     const realToday = getTodayString();
-    if (currentDate !== realToday && !store.isEmergencyMode) {
+    const rollover = evaluateMidnightRollover(lastKnownToday, realToday, currentDate);
+    if (rollover.dayChanged) {
+      lastKnownToday = rollover.nextKnownToday;
+
+      // Recalculate weekly theme rotation on day change
+      if (settings.autoRotateTheme !== false) {
+        const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
+        const baseOffset = settings.themeBaseOffset || 0;
+        const activeTheme = THEMES[(baseOffset + W) % THEMES.length].id;
+        applyTheme(activeTheme, false);
+        renderThemeGrid();
+      }
+
       // If user was viewing the old "today", move them to the new today automatically
-      if (document.getElementById('selectedDate').value === currentDate) {
+      if (rollover.shouldMoveCurrentDate && !store.isEmergencyMode) {
         saveCurrentSheet();
         currentDate = realToday;
+        store.currentDate = currentDate;
         document.getElementById('selectedDate').value = currentDate;
         loadSheetForDate(currentDate);
         renderWeeklyCompletion();
-
-        // Also recalculate theme
-        if (settings.autoRotateTheme !== false) {
-          const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
-          const baseOffset = settings.themeBaseOffset || 0;
-          const activeTheme = THEMES[(baseOffset + W) % THEMES.length].id;
-          applyTheme(activeTheme, false);
-          renderThemeGrid();
-        }
       }
     }
   }, 60000);
@@ -185,10 +201,10 @@ function enterEmergencyMode(info) {
 
   // Disable all save-related UI
   document.querySelectorAll(
-    '.btn-primary, .stepper-btn, .task-input, .hours-input, .ot-toggle, .timer-btn, .timer-stop-btn'
+    '.btn-primary, .stepper-btn, .task-input, .hours-input, .ticket-input, .desc-btn, .ot-toggle, .timer-btn, .timer-stop-btn, .row-menu-btn, .row-checkbox, #selectAllCheck, #selectedDate, #cleanSlateBtn, #deleteSelectedBtn'
   ).forEach(el => {
     el.disabled = true;
-    el.title = 'Read-only: keychain unavailable';
+    el.title = 'Read-only: keychain unavailable or data write-protected';
   });
 }
 
@@ -247,7 +263,7 @@ function setupStaticListeners() {
 
 async function setupEventListeners() {
   store.on('check-hours-warning', () => {
-    if (currentDate === getTodayString()) checkHoursWarning();
+    checkHoursWarning();
   });
 
   store.on('emergency-mode', (payload) => {
@@ -263,11 +279,11 @@ async function setupEventListeners() {
   });
 
   store.on('hud-entry-added', async (payload) => {
-    if (!payload || !payload.date || !payload.row || typeof payload.date !== 'string') {
-      emit('hud-entry-failed', { error: 'Invalid payload' });
+    if (store.isEmergencyMode) {
+      emit('hud-entry-failed', { error: 'Read-only mode' });
       return;
     }
-    
+
     const validation = validateHudPayload(payload);
     if (!validation.isValid) {
       emit('hud-entry-failed', { error: validation.error });
@@ -277,26 +293,23 @@ async function setupEventListeners() {
 
     if (currentDate === payload.date) {
       addRow(safeRow);
-      // Let saveCurrentSheet queue it
-      saveCurrentSheet().then(() => {
+      onDataChange();
+      const ok = await saveCurrentSheet();
+      if (ok) {
         emit('hud-entry-saved', { date: payload.date });
-      }).catch(err => {
-        emit('hud-entry-failed', { error: err.toString() });
-      });
-      renderWeeklyCompletion();
+      } else {
+        emit('hud-entry-failed', { error: lastSaveError || 'Failed to save timesheet' });
+      }
     } else {
       if (!sheets[payload.date]) sheets[payload.date] = [];
       sheets[payload.date].push(safeRow);
-      if (!store.isEmergencyMode) {
-        try {
-          await invoke('save_sheets', { sheets });
-          emit('hud-entry-saved', { date: payload.date });
-        } catch (err) {
-          console.error(err);
-          emit('hud-entry-failed', { error: err.toString() });
-        }
+      store.sheets = sheets;
+      const ok = await flushSheetsToDisk();
+      if (ok) {
+        renderWeeklyCompletion();
+        emit('hud-entry-saved', { date: payload.date });
       } else {
-        emit('hud-entry-failed', { error: 'Read-only mode' });
+        emit('hud-entry-failed', { error: lastSaveError || 'Failed to save timesheet' });
       }
     }
   });
@@ -322,7 +335,7 @@ function renderWeeklyCompletion() {
   const wrapper   = document.getElementById('weeklyCompletion');
   if (!container || !wrapper) return;
 
-  const minHours  = settings.minHoursWarning || 7.5;
+  const minHours  = settings.minHoursWarning ?? 7.5;
 
   // Get all weekday dates for the week containing currentDate (Mon-Fri)
   const weekdayDates = getWeekdayDates(currentDate);
@@ -371,8 +384,11 @@ function renderWeeklyCompletion() {
 }
 
 // ---- Theme ----
+let currentActiveTheme = 'midnight';
+
 function applyTheme(themeId, shouldSave = true) {
   if (!THEMES.find(t => t.id === themeId)) return;
+  currentActiveTheme = themeId;
   document.body.className = `theme-${themeId}`;
 
   if (shouldSave) {
@@ -404,12 +420,14 @@ function selectTheme(themeId) {
 function renderThemeGrid() {
   const grid = document.getElementById('themeGrid');
   grid.innerHTML = '';
+  const activeId = currentActiveTheme || settings.theme || 'midnight';
   THEMES.forEach(theme => {
+    const isActive = activeId === theme.id;
     const swatch = document.createElement('div');
-    swatch.className = `theme-swatch${settings.theme === theme.id ? ' active' : ''}`;
+    swatch.className = `theme-swatch${isActive ? ' active' : ''}`;
     swatch.dataset.theme = theme.id;
     swatch.setAttribute('role', 'radio');
-    swatch.setAttribute('aria-checked', settings.theme === theme.id ? 'true' : 'false');
+    swatch.setAttribute('aria-checked', isActive ? 'true' : 'false');
     swatch.setAttribute('aria-label', `${theme.name} theme`);
     swatch.setAttribute('tabindex', '0');
     swatch.onclick = () => selectTheme(theme.id);
@@ -435,7 +453,7 @@ function renderThemeGrid() {
 // ---- Settings ----
 function applySettingsToUI() {
   document.getElementById('settingIncrement').value       = settings.hourIncrement   || 0.5;
-  document.getElementById('settingMinHours').value        = settings.minHoursWarning || 7.5;
+  document.getElementById('settingMinHours').value        = settings.minHoursWarning ?? 7.5;
   document.getElementById('settingWarningTime').value     = settings.warningTime     || '16:30';
   document.getElementById('settingAutoStart').checked     = settings.autoStart ?? true;
   document.getElementById('settingOverlayPosition').value = settings.overlayPosition || 'top-right';
@@ -452,7 +470,8 @@ async function saveSettings() {
 
   settings.theme           = settings.theme || 'midnight';
   settings.hourIncrement   = parseFloat(document.getElementById('settingIncrement').value)   || 0.5;
-  settings.minHoursWarning = parseFloat(document.getElementById('settingMinHours').value)    || 7.5;
+  const parsedMinHours     = parseFloat(document.getElementById('settingMinHours').value);
+  settings.minHoursWarning = !isNaN(parsedMinHours) ? Math.min(24, Math.max(0, parsedMinHours)) : 7.5;
   settings.warningTime     = document.getElementById('settingWarningTime').value             || '16:30';
   settings.overlayPosition = document.getElementById('settingOverlayPosition').value         || 'top-right';
   const autoRotateEl = document.getElementById('settingAutoRotateTheme');
@@ -474,8 +493,14 @@ async function saveSettings() {
   applyDetailedMode();
 
   store.settings = settings;
-  await invoke('save_settings', { settings });
-  showToast('Settings saved ✓');
+  try {
+    await invoke('save_settings', { settings });
+    showToast('Settings saved ✓');
+  } catch (err) {
+    console.error('save_settings failed:', err);
+    showToast(`⚠ Failed to save settings: ${err}`, 5000);
+    return;
+  }
   checkHoursWarning();
   renderWeeklyCompletion();
 }
@@ -508,6 +533,7 @@ function toggleProjectMode() {
 }
 
 function applyProjectMode() {
+  store.projectMode = projectMode;
   const timerCol = document.getElementById('timerColHeader');
   document.querySelectorAll('.timer-col-cell').forEach(c =>
     c.classList.toggle('hidden', !projectMode)
@@ -524,6 +550,7 @@ function toggleDetailedMode() {
 }
 
 function applyDetailedMode() {
+  store.detailedMode = detailedMode;
   document.getElementById('detailedColHeader').classList.toggle('hidden', !detailedMode);
   document.getElementById('descColHeader').classList.toggle('hidden', !detailedMode);
   document.querySelectorAll('.ticket-col-cell').forEach(c => c.classList.toggle('hidden', !detailedMode));
@@ -544,9 +571,11 @@ function openDescModal(timerId) {
   activeDescTimerId = timerId;
   const btn = tr.querySelector('.desc-btn');
   const desc = btn?.dataset.desc || '';
-  document.getElementById('descModalTextarea').value = desc;
+  const textarea = document.getElementById('descModalTextarea');
+  textarea.readOnly = false;
+  textarea.value = desc;
   document.getElementById('descModal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('descModalTextarea').focus(), 50);
+  setTimeout(() => textarea.focus(), 50);
 }
 
 function closeDescModal(e) {
@@ -588,37 +617,58 @@ function loadSheetForDate(date) {
   if (rows.length === 0) addRow();
   else rows.forEach(r => addRow(r));
   updateTotals();
+  checkHoursWarning();
   restoreTimers();
 }
 
 let isSaving = false;
 let savePending = false;
+let pendingSaveWaiters = [];
+let lastSaveError = null;
 
-async function saveCurrentSheet() {
-  if (store.isEmergencyMode) return;
-  sheets[currentDate] = collectRows();
-  
+async function flushSheetsToDisk() {
+  if (store.isEmergencyMode) {
+    lastSaveError = 'Read-only mode';
+    return false;
+  }
+
   if (isSaving) {
     savePending = true;
-    return;
+    return new Promise(resolve => {
+      pendingSaveWaiters.push(resolve);
+    });
   }
-  
+
   isSaving = true;
+  let ok = false;
   try {
-    await invoke('save_sheets', { sheets });
+    do {
+      savePending = false;
+      await invoke('save_sheets', { sheets });
+      ok = true;
+      lastSaveError = null;
+    } while (savePending && !store.isEmergencyMode);
   } catch (err) {
+    ok = false;
+    lastSaveError = typeof err === 'string' ? err : (err?.message || String(err));
     console.error('save_sheets failed:', err);
-    showToast(`⚠ Save failed: ${err}`, 5000);
-    if (typeof err === 'string' && err.includes('WRITE_BLOCKED_EMERGENCY_MODE')) {
+    showToast(`⚠ Save failed: ${lastSaveError}`, 5000);
+    if (lastSaveError.includes('WRITE_BLOCKED_EMERGENCY_MODE')) {
       enterEmergencyMode({ encryptedDataExists: true });
     }
   } finally {
     isSaving = false;
-    if (savePending) {
-      savePending = false;
-      saveCurrentSheet();
-    }
+    const waiters = pendingSaveWaiters.splice(0);
+    waiters.forEach(resolve => resolve(ok));
   }
+  return ok;
+}
+
+async function saveCurrentSheet() {
+  if (store.isEmergencyMode) return false;
+  sheets[currentDate] = collectRows();
+  store.sheets = sheets;
+  return await flushSheetsToDisk();
 }
 
 function collectRows() {
@@ -630,14 +680,18 @@ function collectRows() {
     const task = tr.querySelector('.task-input')?.value || '';
     const ticketNum = tr.querySelector('.ticket-input')?.value || '';
     const description = tr.querySelector('.desc-btn')?.dataset.desc || '';
+    const timerId = tr.dataset.timerId;
+    const hasActiveOrPausedTimer = Boolean(
+      timerId && timers[timerId] && (timers[timerId].running || timers[timerId].elapsed > 0)
+    );
     
-    // Skip entirely blank rows (0 hours and no text content)
-    if (hours === 0 && !task.trim() && !ticketNum.trim() && !description.trim()) {
+    // Skip entirely blank rows unless a timer is active/paused on this row
+    if (hours === 0 && !task.trim() && !ticketNum.trim() && !description.trim() && !hasActiveOrPausedTimer) {
       return;
     }
     
     rows.push({
-      timerId:     tr.dataset.timerId,
+      timerId,
       task,
       hours,
       ot:          tr.querySelector('.ot-toggle')?.classList.contains('active') || false,
@@ -712,7 +766,13 @@ function addRow(data = null, insertAfterEl = null) {
   hoursInput.step = settings.hourIncrement || 0.5;
   hoursInput.setAttribute('aria-label', 'Hours worked');
   hoursInput.addEventListener('input', () => onDataChangeDebounced());
-  hoursInput.addEventListener('blur', () => saveCurrentSheet());
+  hoursInput.addEventListener('blur', () => {
+    let clamped = parseFloat(hoursInput.value) || 0;
+    clamped = Math.min(24, Math.max(0, clamped));
+    hoursInput.value = clamped;
+    onDataChange();
+    saveCurrentSheet();
+  });
   const btnPlus = document.createElement('button');
   btnPlus.className = 'stepper-btn';
   btnPlus.setAttribute('aria-label', 'Increase hours');
@@ -839,6 +899,12 @@ function addRow(data = null, insertAfterEl = null) {
   else tbody.appendChild(tr);
 
   if (timers[timerId]) updateTimerDisplay(timerId);
+  if (store.isEmergencyMode) {
+    tr.querySelectorAll('input, button').forEach(el => {
+      el.disabled = true;
+      el.title = 'Read-only: keychain unavailable or data write-protected';
+    });
+  }
   return tr;
 }
 
@@ -857,7 +923,7 @@ function stepHours(timerId, dir) {
   const rawInc = parseFloat(settings.hourIncrement);
   const inc    = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
   let val      = parseFloat(input.value) || 0;
-  val = Math.max(0, Math.round((val + dir * inc) / inc) * inc);
+  val = Math.min(24, Math.max(0, Math.round((val + dir * inc) / inc) * inc));
   val = Math.round(val * 100) / 100;
   input.value = parseFloat(val.toFixed(2));
   onDataChange();
@@ -890,7 +956,6 @@ function updateTotals() {
   document.getElementById('footerTotal').textContent       = total.toFixed(1) + 'h';
   const totalDisplay = document.getElementById('totalHoursDisplay');
   if (totalDisplay) totalDisplay.textContent = total.toFixed(1) + 'h';
-  emit('hours-updated', { total }).catch(() => {});
   return total;
 }
 
@@ -996,6 +1061,7 @@ let cleanSlateActiveTimerId = 'new';
 
 function toggleCleanSlateMode() {
   isCleanSlateMode = !isCleanSlateMode;
+  store.isCleanSlateMode = isCleanSlateMode;
   const tableContainer = document.querySelector('.table-container');
   const tableFooter = document.querySelector('.table-footer');
   const weeklyCompletion = document.querySelector('.weekly-completion');
@@ -1111,8 +1177,10 @@ function cleanSlateToggleTimer() {
     const tr = addRow({ task: formattedTask, hours: 0, ot: false });
     const timerId = tr.dataset.timerId;
 
-    // Start timer on this new row
+    // Start timer on this new row and persist the row immediately
     toggleTimer(timerId);
+    onDataChange();
+    saveCurrentSheet();
 
     // Refresh options and select the new timerId
     cleanSlateActiveTimerId = timerId;
@@ -1140,6 +1208,7 @@ function cleanSlateLogFocus() {
     const formattedTask = `[${proj}] ${taskDesc}`;
 
     addRow({ task: formattedTask, hours: inc, ot: false });
+    onDataChange();
     saveCurrentSheet();
     showToast(`✓ Logged ${inc}h to new focus task`);
     refreshCleanSlateTaskOptions();
@@ -1291,6 +1360,11 @@ function renderDateRangeTimesheets() {
     return;
   }
 
+  if (fromDate > toDate) {
+    container.innerHTML = `<div class="empty-state"><p>Start date must be on or before end date.</p></div>`;
+    return;
+  }
+
   // Prevent browser hangs on massive ranges
   if ((toDate - fromDate) / (1000 * 60 * 60 * 24) > 366) {
     container.innerHTML = `<div class="empty-state"><p>Date range too large. Maximum is 366 days.</p></div>`;
@@ -1419,6 +1493,7 @@ function renderDateRangeTimesheets() {
     btn.addEventListener('click', () => {
       const date = btn.dataset.date;
       currentDate = date;
+      store.currentDate = currentDate;
       document.getElementById('selectedDate').value = date;
       loadSheetForDate(date);
       switchView('timesheet');
@@ -1429,9 +1504,11 @@ function renderDateRangeTimesheets() {
   container.querySelectorAll('.open-range-desc-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       activeDescTimerId = null;
-      document.getElementById('descModalTextarea').value = btn.dataset.desc || '';
+      const textarea = document.getElementById('descModalTextarea');
+      textarea.readOnly = true;
+      textarea.value = btn.dataset.desc || '';
       document.getElementById('descModal').classList.remove('hidden');
-      setTimeout(() => document.getElementById('descModalTextarea').focus(), 50);
+      setTimeout(() => textarea.focus(), 50);
     });
   });
 
@@ -1467,7 +1544,7 @@ function checkHoursWarning() {
   const currentMins = now.getHours() * 60 + now.getMinutes();
   if (currentMins < warningMins) { hideBanner(); return; }
   const total    = updateTotals();
-  const minHours = settings.minHoursWarning || 7.5;
+  const minHours = settings.minHoursWarning ?? 7.5;
   if (total < minHours) {
     showBanner(total, minHours);
   } else {
@@ -1520,6 +1597,7 @@ function shiftSelectedDate(days) {
   const d = new Date(currentDate + 'T00:00:00');
   d.setDate(d.getDate() + days);
   currentDate = formatDate(d);
+  store.currentDate = currentDate;
   document.getElementById('selectedDate').value = currentDate;
   loadSheetForDate(currentDate);
   renderWeeklyCompletion();
@@ -1531,6 +1609,7 @@ function jumpToToday() {
   }
   saveCurrentSheet();
   currentDate = getTodayString();
+  store.currentDate = currentDate;
   document.getElementById('selectedDate').value = currentDate;
   loadSheetForDate(currentDate);
   renderWeeklyCompletion();
@@ -1587,7 +1666,7 @@ function setupKeyboardShortcuts() {
     // Ctrl + 1 / 2 / 3 -> Switch Views
     if (isCtrl && !e.shiftKey && ['1', '2', '3'].includes(e.key)) {
       e.preventDefault();
-      const views = ['timesheet', 'import', 'settings'];
+      const views = ['timesheet', 'timesheets-view', 'settings'];
       switchView(views[parseInt(e.key) - 1]);
       return;
     }
@@ -1611,8 +1690,13 @@ function setupKeyboardShortcuts() {
     // Ctrl + S -> Force Save Sheet
     if (isCtrl && !e.shiftKey && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      saveCurrentSheet();
-      showToast('Timesheet saved to disk');
+      if (store.isEmergencyMode) {
+        showToast('⚠ Read-only mode — timesheet cannot be saved');
+        return;
+      }
+      saveCurrentSheet().then(ok => {
+        if (ok) showToast('Timesheet saved to disk');
+      });
       return;
     }
 

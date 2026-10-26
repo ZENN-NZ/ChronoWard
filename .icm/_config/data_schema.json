@@ -8,11 +8,11 @@
       "properties": {
         "timerId": { "type": "string" },
         "task": { "type": "string" },
-        "hours": { "type": "number", "minimum": 0 },
+        "hours": { "type": "number", "minimum": 0, "maximum": 24 },
         "ot": { "type": "boolean" },
         "ticketNum": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]{0,24}$"
+          "pattern": "^.{0,12}[0-9]{0,12}$"
         },
         "description": { "type": "string" }
       }
@@ -47,15 +47,20 @@
         "themeBaseOffset": { "type": "integer", "minimum": 0 },
         "autoRotateTheme": { "type": "boolean" },
         "hourIncrement": { "type": "number", "minimum": 0.01 },
+        "projectMode": { "type": "boolean" },
+        "detailedMode": { "type": "boolean" },
+        "focusTimes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "overlayPosition": {
           "type": "string",
           "enum": ["top-right", "top-left", "bottom-right", "bottom-left", "center-left", "center-right"]
         },
         "installedAt": { "type": "integer" },
-        "themeSetAt": { "type": "integer" },
         "warningTime": { "type": "string" },
-        "minHoursWarning": { "type": "number" },
-        "auto_start": { "type": "boolean" }
+        "minHoursWarning": { "type": "number", "minimum": 0, "maximum": 24 },
+        "autoStart": { "type": "boolean" }
       }
     }
   }

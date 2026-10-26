@@ -10,13 +10,27 @@ const statusMessage = document.getElementById('statusMessage');
 
 let isSubmitting = false;
 
-ticketInput.addEventListener('input', () => {
-  const val = ticketInput.value.trim();
+function generateRowId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function isValidTicket(val) {
+  if (!val) return true;
   const match = val.match(/^(.*?)(\d*)$/);
   const prefix = match ? match[1] : val;
   const id = match ? match[2] : '';
-  const isValid = prefix.length <= 12 && id.length <= 12;
-  ticketInput.classList.toggle('ticket-invalid', !isValid);
+  return prefix.length <= 12 && id.length <= 12;
+}
+
+ticketInput.addEventListener('input', () => {
+  const val = ticketInput.value.trim();
+  ticketInput.classList.toggle('ticket-invalid', !isValidTicket(val));
 });
 
 function getTodayString() {
@@ -40,6 +54,14 @@ async function commitLog() {
     return;
   }
 
+  if (!isValidTicket(ticketNum)) {
+    ticketInput.classList.add('ticket-invalid');
+    statusMessage.textContent = 'Invalid ticket # (max 12 prefix chars + 12 digits)';
+    statusMessage.style.color = '#f87171';
+    ticketInput.focus();
+    return;
+  }
+
   statusMessage.textContent = 'Saving...';
   statusMessage.style.color = '#38bdf8';
   isSubmitting = true;
@@ -48,7 +70,7 @@ async function commitLog() {
     const todayStr = getTodayString();
     const taskText = project ? `[${project}] ${task}` : task;
     const newRow = {
-      timerId: 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      timerId: generateRowId(),
       task: taskText,
       hours: hours,
       ot: false,
@@ -56,31 +78,40 @@ async function commitLog() {
       description: ''
     };
 
-    // M9: wait for acknowledgement
+    // R-M4: await listener registration before emitting and clean up on timeout
+    let resolveAck, rejectAck;
+    const ackPromise = new Promise((resolve, reject) => {
+      resolveAck = resolve;
+      rejectAck = reject;
+    });
+
+    let timeoutId;
     let unsubscribeSuccess;
     let unsubscribeError;
 
-    const ackPromise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout waiting for save acknowledgement")), 5000);
-      
-      const cleanup = () => {
-        clearTimeout(timeout);
-        if (unsubscribeSuccess) unsubscribeSuccess();
-        if (unsubscribeError) unsubscribeError();
-      };
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (unsubscribeSuccess) { unsubscribeSuccess(); unsubscribeSuccess = null; }
+      if (unsubscribeError) { unsubscribeError(); unsubscribeError = null; }
+    };
 
+    [unsubscribeSuccess, unsubscribeError] = await Promise.all([
       listen('hud-entry-saved', (evt) => {
         if (evt.payload && evt.payload.date === todayStr) {
           cleanup();
-          resolve();
+          resolveAck();
         }
-      }).then(unsub => { unsubscribeSuccess = unsub; });
-
+      }),
       listen('hud-entry-failed', (evt) => {
         cleanup();
-        reject(new Error(evt.payload?.error || "Save failed"));
-      }).then(unsub => { unsubscribeError = unsub; });
-    });
+        rejectAck(new Error(evt.payload?.error || 'Save failed'));
+      }),
+    ]);
+
+    timeoutId = setTimeout(() => {
+      cleanup();
+      rejectAck(new Error('Timeout waiting for save acknowledgement'));
+    }, 5000);
 
     await emit('hud-entry-added', { date: todayStr, row: newRow });
     await ackPromise;
@@ -88,10 +119,11 @@ async function commitLog() {
     // Reset & dismiss
     taskInput.value = '';
     ticketInput.value = '';
+    ticketInput.classList.remove('ticket-invalid');
     projectSelect.value = '';
     hoursInput.value = 0;
     statusMessage.textContent = 'Logged!';
-    statusMessage.style.color = '#38bdf8'; // Ensure color is reset to success color
+    statusMessage.style.color = '#38bdf8';
     setTimeout(async () => {
       await invoke('hide_hud_cmd');
       statusMessage.textContent = 'Ready';
@@ -110,7 +142,7 @@ async function commitLog() {
 commitBtn.addEventListener('click', commitLog);
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' && e.target !== commitBtn) {
     commitLog();
   } else if (e.key === 'Escape') {
     invoke('hide_hud_cmd').catch(console.error);
@@ -120,6 +152,7 @@ document.addEventListener('keydown', (e) => {
 listen('hud-opened', async () => {
   taskInput.value = '';
   ticketInput.value = '';
+  ticketInput.classList.remove('ticket-invalid');
   projectSelect.value = '';
   statusMessage.textContent = 'Ready';
   statusMessage.style.color = '#38bdf8';

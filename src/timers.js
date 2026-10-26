@@ -95,7 +95,8 @@ export function stopTimer(timerId, silent, store, callbacks = {}) {
     if (tr) {
       const input = tr.querySelector('.hours-input');
       const existing = parseFloat(input.value) || 0;
-      input.value = parseFloat((existing + roundedHours).toFixed(3));
+      const clamped = Math.min(24, Math.max(0, existing + roundedHours));
+      input.value = parseFloat(clamped.toFixed(3));
     }
   }
   delete timers[timerId];
