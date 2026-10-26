@@ -1,67 +1,131 @@
-# ChronoWard v2.0.5 — Code Review Report
+# ChronoWard v2.0.5 — Code Review Report (Post-Remediation Pass 2)
 
-**Stage:** 06 Code Review · **Date:** 2026-10-04 · **Scope:** `src/`, `src-tauri/src/`, Tauri config/capabilities, `tests/`
-**Checks run:** `npm test` → 7/7 pass. `cargo test` **not run** on purpose (see M1: a test reads/creates the production keychain key).
+**Stage:** 06 Code Review (Pass 2) · **Date:** 2026-10-27 · **Scope:** `src/`, `src-tauri/src/`, Tauri config/capabilities, `tests/`, `.icm/_config/`
+**Commits Reviewed:** `6165074` (C1), `c8b884c` (H1–H4), `af45d7b` (M1–M11), `a3e63ac` (L1–L14)
+**Checks Run:** `npm test` → 10/10 pass (`tests/utils.test.js`, `tests/timers.test.js`).
 
 ## Summary
 
-| Severity | Count | Theme |
-| :--- | :---: | :--- |
-| 🔴 Critical | 1 | Silent overwrite of encrypted history after a decrypt failure |
-| 🟠 High | 4 | Keychain-loss key regeneration, midnight rollover, Ctrl+2 crash, non-durable writes |
-| 🟡 Medium | 11 | Focus stealing, XSS hardening, input validation, save ordering/feedback, test coverage |
-| ⚪ Low | 14 | Dead code, doc/schema drift, small correctness issues |
-
-The architecture is sound overall. Strengths: atomic write-and-rename, a serialised write lock, emergency read-only mode, AES-GCM with a fresh random nonce per write, `connect-src 'none'`, pinned dependencies, poisoned-mutex recovery (`into_inner`), and main-table rows built with `createElement` instead of `innerHTML`.
-The serious problems sit **between** layers. The backend reports a failure, the frontend treats it as "no data", and the next save overwrites the user's history.
+| Severity | Pass 1 Count | Pass 2 Count | Theme |
+| :--- | :---: | :---: | :--- |
+| 🔴 Critical | 1 | **0** | Primary decrypt-failure overwrite blocked on backend (`write_protected` + regression test) |
+| 🟠 High | 4 | **4** | 1 regression (`currentDate` interval resets past dates every 60s) + 3 incomplete data-safety/migration paths |
+| 🟡 Medium | 11 | **8** | Incomplete fixes in `Ctrl+2`, scheduler focus-stealing, banner hiding, HUD acks, `Ctrl+S`, overlay/Pomodoro |
+| ⚪ Low | 14 | **7** | Remaining schema/comment drift, Range Viewer modal UX, falsy `0` setting, dead code/AAD |
 
 ---
 
-## 🔴 Critical
+## ✅ What Is Done Well
 
-### C1. Decrypt failure → empty sheet → encrypted history overwritten
-**Where:** [app.js L48-63](../../../src/app.js#L48-L63), [sheets.rs L63-70](../../../src-tauri/src/commands/sheets.rs#L63-L70), [state.rs `guard_write!` L274-283](../../../src-tauri/src/state.rs#L274-L283), [app.js `saveCurrentSheet` L529-540](../../../src/app.js#L529-L540)
+1. **Keychain-Loss Protection (`H1` — Resolved):**
+   - [`lib.rs` L31-32](../../../src-tauri/src/lib.rs#L31-L32) and [`crypto.rs` L50-101](../../../src-tauri/src/crypto.rs#L50-L101) now inspect `check_encrypted_data_exists(&data_dir)` **before** probing the OS keychain. If `keyring::Error::NoEntry` is returned while `enc1:` files exist on disk, `ensure_key_exists()` refuses to generate a new key and cleanly transitions the app into read-only emergency mode.
+2. **Backend Write-Protection Gate & Regression Test (`C1` Backend Core & `M1` — Well Implemented):**
+   - [`state.rs` L166, L286-291](../../../src-tauri/src/state.rs#L166) adds an `AtomicBool` (`write_protected`) checked by `guard_write!`.
+   - [`sheets.rs` L150-181](../../../src-tauri/src/commands/sheets.rs#L150-L181) adds a deterministic async unit test (`test_c1_decrypt_failure_blocks_writes`) verifying that a decrypt failure blocks subsequent `save_sheets` calls and preserves the original ciphertext on disk.
+   - [`crypto.rs` L330-340](../../../src-tauri/src/crypto.rs#L330-L340) replaces `probe_keychain()` in `test_two_encryptions_produce_different_ciphertext` with an in-memory `SecretVec`, eliminating production OS keychain pollution during tests (`M1`).
+3. **CSP Hardening & Externalized Window Scripts (`M4` Core — Well Implemented):**
+   - Inline scripts were extracted from [`hud.html`](../../../src/hud.html) and [`overlay.html`](../../../src/overlay.html) into [`hud.js`](../../../src/hud.js) and [`overlay.js`](../../../src/overlay.js), and `'unsafe-inline'` was removed from `script-src` in [`tauri.conf.json` L13](../../../src-tauri/tauri.conf.json#L13).
+4. **HUD Payload Sanitization & Unit Tests (`M5`, `M11` Frontend — Well Implemented):**
+   - [`utils.js` L79-101](../../../src/utils.js#L79-L101) adds `validateHudPayload()`, validating `^\d{4}-\d{2}-\d{2}$` dates, clamping hours to `[0, 24]`, and constructing a fresh typed row object.
+   - [`timers.js` L74-79](../../../src/timers.js#L74-L79) extracts `calculateRoundedHours()` as a pure function with unit tests in [`tests/timers.test.js`](../../../tests/timers.test.js).
+5. **Durable Temp-File Fsync, CSV Formula/BOM Fixes & Hygiene (`H3` Fsync, `L4`, `L5`, `L6`, `L7`, `L10`, `L11`, `L12` — Well Implemented):**
+   - [`settings.rs` L134-145](../../../src-tauri/src/commands/settings.rs#L134-L145) calls `file.sync_all().await` before renaming temp files and cleans up `.tmp` on write/sync errors.
+   - [`utils.js` L16-33](../../../src/utils.js#L16-L33) fixes `escHtml(0)` via `str ?? ''`, checks raw strings for leading `\t`/`\r` formula triggers before `trimStart()`, and uses `crypto.randomUUID()` in `generateId()`.
+   - [`app.js` L1213](../../../src/app.js#L1213) adds the UTF-8 BOM (`\uFEFF`) and CRLF (`\r\n`) line endings to CSV exports.
+   - [`csv.rs` L51](../../../src/commands/csv.rs#L51) replaces `.expect()` with `.map_err(...)`, removes unused `import_csv`/`get_data_dir` commands (`L1`/`L4`), and [`lib.rs` L121](../../../src-tauri/src/lib.rs#L121) routes startup autostart sync through `load_settings` (`L10`).
+   - [`crypto.rs` L72, L93](../../../src-tauri/src/crypto.rs#L72) wraps hex key strings in `secrecy::SecretString`.
 
-**Trace:**
-1. `load_sheets` fails to decrypt (key changed, file truncated, bit-rot, see H1/H2). It returns `{ ok:false, code:"DECRYPT_FAILED" }` and sets no flag.
-2. `init()` only checks for `EMERGENCY_MODE`. Every other `ok:false` goes to the `else` branch, where `sheets = sheetsResult.data || {}` evaluates to `{}`. The user sees no warning.
-3. `loadSheetForDate` adds a blank row. The first blur, stepper click or timer stop calls `saveCurrentSheet()`, which sends `save_sheets({ [today]: [...] })`.
-4. `guard_write!` only checks `emergency_mode`, which is set once at startup. The write goes through and **the only copy of the user's full history is replaced**.
+---
 
-`settings.rs` [L55-58](../../../src-tauri/src/commands/settings.rs#L55-L58) and `timers.rs` [L43-46](../../../src-tauri/src/commands/timers.rs#L43-L46) do the same thing: they quietly return defaults, which get saved on the next write.
+## ❌ What Isn't Done Well (Regressions & Incomplete Fixes)
 
-**Fix (both layers):**
-- Backend: add a per-file runtime `write_protected` flag (`AtomicBool`) that is set on any decrypt or parse failure. Have `guard_write!` and the save commands check it. Before allowing any write, copy the unreadable original to `*.corrupt.<ts>` (the same way JSON-parse failures are handled now).
-- Frontend: treat **any** `ok:false` as read-only. Show a persistent banner that names the error code.
-- Add a regression test: corrupt the `sheets.json` ciphertext → `load_sheets` → `save_sheets` must fail and the original bytes must still be on disk.
+1. **Midnight Rollover Fix (`H2`) Introduced a High-Severity Regression (`R-H1`):**
+   - [`app.js` L138-140](../../../src/app.js#L138-L140) checks `if (currentDate !== realToday)` and `if (document.getElementById('selectedDate').value === currentDate)`. Because `#selectedDate.value` is always set to `currentDate` whenever a user navigates to another date, **anyone viewing or editing a past/future timesheet is forcibly yanked back to today within 60 seconds**.
+2. **Write-Protection & Emergency Mode (`C1`) Have Cross-Layer Contradictions (`R-H2`):**
+   - In [`sheets.rs` L86-98](../../../src-tauri/src/commands/sheets.rs#L86-L98), when `sheets.json` fails JSON parsing, the file is **already quarantined** and `load_sheets` returns `"ok": true`, yet `write_protected` is set to `true` — so the UI starts normally and then crashes into emergency mode on the first edit.
+   - In [`settings.rs` L57, L64](../../../src-tauri/src/commands/settings.rs#L57) and [`timers.rs` L45, L57](../../../src-tauri/src/commands/timers.rs#L45), a corrupt/undecryptable `settings.json` or `timers.json` sets global `write_protected = true` **without quarantining the bad file** and returns `Ok(...)`, permanently blocking `sheets.json` saves across every future restart with a misleading "keychain unavailable" message.
+   - In [`app.js` L52 vs L102](../../../src/app.js#L52), `enterEmergencyMode()` runs **before** `loadSheetForDate()` creates the table rows. On `DECRYPT_FAILED`, backend `state.emergency_mode` is `None`, so `renderer-ready` never re-triggers `enterEmergencyMode()`, leaving all table inputs/buttons enabled.
+3. **Backup Rotation (`H3`) Can Lose the Primary File and Never Recovers From `.bak` (`R-H3`):**
+   - [`settings.rs` L147-155](../../../src-tauri/src/commands/settings.rs#L147-L155) moves `path` to `.json.bak` via `rename` *before* renaming `.tmp` to `path`. If the second rename fails or power is lost in between, `sheets.json` is missing on disk. Furthermore, **nothing in `sheets.rs`, `settings.rs`, or `timers.rs` ever reads `.json.bak`** on missing file or decrypt failure.
+4. **Legacy Plaintext Migration (`has_legacy_plaintext`) Bricks the App on Second Launch (`R-H4`):**
+   - [`sheets.rs` L62-64](../../../src-tauri/src/commands/sheets.rs#L62-L64) and [`settings.rs` L50-52](../../../src-tauri/src/commands/settings.rs#L50-L52) set `has_legacy_plaintext = true` when reading plaintext data on `is_new_key = true`, but nothing ever reads that flag or re-encrypts the file on load. Any file not manually saved during the first session is rejected as a downgrade attack on the next launch (`is_new_key = false`), locking the app into `write_protected = true`.
+5. **Several Medium/Low Fixes Stopped Halfway (`R-M1` to `R-M7`):**
+   - **`H4` (`Ctrl+2`):** [`app.js` L1590](../../../src/app.js#L1590) still has `const views = ['timesheet', 'import', 'settings']`, so `Ctrl+2` hits the new `switchView` guard and does nothing.
+   - **`M2` (Focus Stealing):** [`lib.rs` L137](../../../src-tauri/src/lib.rs#L137) was fixed, but [`scheduler.rs` L123-129](../../../src-tauri/src/scheduler.rs#L123-L129) still calls `window.set_focus()` every minute while `warning_active` is true.
+   - **`M3` (Warning Banner Stuck):** [`app.js` L250](../../../src/app.js#L250) guards `if (currentDate === getTodayString()) checkHoursWarning()`, and `loadSheetForDate()` never calls `checkHoursWarning()`, so the new `hideBanner()` early return in `checkHoursWarning()` is never reached when switching dates.
+   - **`M7`/`M9` (HUD Ack & Save Queue):** `saveCurrentSheet()` swallows errors and returns early when `isSaving` or `isEmergencyMode` is true, so [`app.js` L281-285](../../../src/app.js#L281-L285) still emits `hud-entry-saved` ("Logged!") when saving fails or is blocked. [`hud.js` L64-85](../../../src/hud.js#L64-L85) also leaks IPC listeners on timeout.
+   - **`M8` (`Ctrl+S`):** [`app.js` L1614-1615](../../../src/app.js#L1614-L1615) still does not `await saveCurrentSheet()` and shows `"Timesheet saved to disk"` even in read-only emergency mode.
+   - **`L9` (Overlay Position):** [`window.rs` L71-95](../../../src-tauri/src/commands/window.rs#L71-L95) ignores `monitor.position()` (multi-monitor offset) and `monitor.work_area()` (taskbar overlap).
 
 ---
 
 ## 🟠 High
 
-### H1. Lost keychain entry silently creates a new key while encrypted data exists
-**Where:** [crypto.rs L85-95](../../../src-tauri/src/crypto.rs#L85-L95), [lib.rs L31-45](../../../src-tauri/src/lib.rs#L31-L45)
+### R-H1. Midnight rollover check triggers every 60 seconds on any non-today date and yanks the user back to today
+**Where:** [`app.js` L135-157](../../../src/app.js#L135-L157)
 
-`ensure_key_exists()` generates and stores a fresh key on `NoEntry` and never checks whether `enc1:` files are already on disk. This can happen after a Credential Manager wipe, a profile migration, or a machine restore. The old data becomes undecryptable for good, `is_new_key=true` turns the downgrade defence off for the session, and C1 then overwrites the files.
-**Fix:** run `check_encrypted_data_exists()` **before** probing. If the entry is `NoEntry` and encrypted data exists, return `Unavailable("key missing for existing encrypted data")` so emergency mode engages. Never generate a key in that state.
+**Trace:**
+1. The user selects a previous date (e.g. yesterday) via `#selectedDate` ([L114](../../../src/app.js#L114)), `Alt+←` ([L1522](../../../src/app.js#L1522)), or the Range Viewer's "Edit Date" button ([L1421](../../../src/app.js#L1421)). Both `currentDate` and `document.getElementById('selectedDate').value` become that date.
+2. Within 60 seconds, the rollover interval runs:
+   - `currentDate !== realToday` is `true`.
+   - `document.getElementById('selectedDate').value === currentDate` is **always `true`**.
+3. The interval saves, overwrites `currentDate = realToday`, sets `#selectedDate.value` to today, and calls `loadSheetForDate(realToday)` — wiping the table while the user is viewing or editing a past date.
 
-### H2. `currentDate` freezes at launch, so the app breaks after midnight
-**Where:** [app.js L69](../../../src/app.js#L69), [L208-210](../../../src/app.js#L208-L210), [L1414-1416](../../../src/app.js#L1414-L1416), [L1419-1420](../../../src/app.js#L1419-L1420)
+**Fix:**
+Track the calendar day at startup (`let lastKnownToday = getTodayString();`) and only run rollover logic when `realToday !== lastKnownToday`:
+```javascript
+let lastKnownToday = getTodayString();
+setInterval(() => {
+  const realToday = getTodayString();
+  if (realToday !== lastKnownToday) {
+    const wasViewingToday = (currentDate === lastKnownToday);
+    lastKnownToday = realToday;
+    if (wasViewingToday && !store.isEmergencyMode) {
+      saveCurrentSheet();
+      currentDate = realToday;
+      document.getElementById('selectedDate').value = currentDate;
+      loadSheetForDate(currentDate);
+      renderWeeklyCompletion();
+      // recalculate theme...
+    }
+  }
+}, 60000);
+```
 
-ChronoWard autostarts and lives in the tray, so it often runs for days. After the first midnight, `currentDate === getTodayString()` is always false. The **hours warning stops firing**, Pomodoro and new rows go into yesterday's sheet, and the weekly theme rotation is never recalculated.
-**Fix:** check once a minute for a date change. If the user was viewing the old "today", save and move to the new today. Also recalculate the theme.
+### R-H2. `write_protected` & `enterEmergencyMode` ordering flaws lock out valid sheets and leave inputs enabled on `DECRYPT_FAILED`
+**Where:** [`sheets.rs` L67-100](../../../src-tauri/src/commands/sheets.rs#L67-L100), [`settings.rs` L55-66](../../../src-tauri/src/commands/settings.rs#L55-L66), [`timers.rs` L43-60](../../../src-tauri/src/commands/timers.rs#L43-L60), [`state.rs` L220-222](../../../src-tauri/src/state.rs#L220-L222), [`app.js` L51-103, L166-193](../../../src/app.js#L51-L103)
 
-### H3. Non-durable atomic write; no backup of the only data file
-**Where:** [settings.rs `atomic_write` L126-141](../../../src-tauri/src/commands/settings.rs#L126-L141)
+**Trace:**
+1. **Quarantined JSON contradiction (`sheets.rs` L86-98):** When `sheets.json` fails JSON parsing, it is already renamed to `sheets.json.corrupt.<ts>` and returns `"ok": true, "warning": "CORRUPT_DATA_QUARANTINED"`. Setting `state.write_protected = true` on L86 causes the first user edit to fail with `WRITE_BLOCKED_EMERGENCY_MODE` and trigger a false "keychain unavailable" banner.
+2. **Cross-file lockout (`timers.rs` L45/57, `settings.rs` L57/64):** If `timers.json` or `settings.json` is corrupt, `load_timers` / `load_settings` sets the global `write_protected = true` without quarantining the file and returns `Ok(...)`. `load_sheets` succeeds (`ok: true`), the UI opens normally with no warning, and then every save fails across this and all future launches.
+3. **DOM ordering (`app.js` L52 vs L102):** On `DECRYPT_FAILED`, `enterEmergencyMode(sheetsResult)` runs at L52 while `#timesheetBody` is still empty. `loadSheetForDate(currentDate)` runs at L102 and creates enabled row inputs and buttons. Because backend `state.emergency_mode` is `None` on `DECRYPT_FAILED`, `renderer-ready` (L125) never re-emits `emergency-mode`, leaving all row inputs editable in the UI.
 
-The code writes the temp file and renames it without `sync_all()`. On power loss, NTFS/ext4 can leave the renamed file empty or partly written, and that feeds straight into C1. No previous generation is kept either.
-**Fix:** open the temp file → `write_all` → `sync_all()` → rename → (on Unix) fsync the directory. Keep a rotating `sheets.json.bak` (the last good ciphertext) and fall back to it when decryption fails.
+**Fix:**
+- Only set `write_protected = true` when `sheets.json` fails decryption (or if quarantining a corrupt file fails). When `timers.json` or `settings.json` fails decryption/parsing, quarantine it to `*.corrupt.<ts>` so it does not poison `sheets.json` saves.
+- Update `AppState::is_read_only()` in `state.rs` L220 to `self.emergency_mode.is_some() || self.write_protected.load(Ordering::SeqCst)`.
+- In `app.js`, apply the read-only disabled state *after* `loadSheetForDate()` (or inside `addRow()` when `store.isEmergencyMode` is true) and disable `.ticket-input, .desc-btn, .row-menu-btn, .row-checkbox, #selectAllCheck, #selectedDate, #cleanSlateBtn`.
 
-### H4. Ctrl+2 blanks the whole UI
-**Where:** [app.js L1539-1545](../../../src/app.js#L1539-L1545), [app.js `switchView` L426-434](../../../src/app.js#L426-L434), [index.html L417](../../../src/index.html#L417)
+### R-H3. `atomic_write` two-step rename creates a file-loss window and `.json.bak` is never read for recovery
+**Where:** [`settings.rs` L147-155](../../../src-tauri/src/commands/settings.rs#L147-L155), [`sheets.rs` L50-76](../../../src-tauri/src/commands/sheets.rs#L50-L76)
 
-The views array still contains `'import'`, which was removed. `switchView` removes `active` from every view and nav button, then throws on `getElementById('view-import')` returning null. The user is left with an empty main pane.
-**Fix:** use `['timesheet','timesheets-view','settings']`, make `switchView` return early on unknown IDs, and update the shortcut help text.
+**Trace:**
+1. `atomic_write` renames `path` (`sheets.json`) to `sheets.json.bak` (L149) **before** renaming `tmp_path` to `path` (L152). If the second rename fails (e.g. transient Windows file lock) or power fails between the two renames, `sheets.json` no longer exists on disk and `tmp_path` is deleted (L153).
+2. Neither `load_sheets`, `load_settings`, nor `load_timers` ever checks for or falls back to `.json.bak`. On next launch, `load_sheets` sees `!path.exists()` (L50), returns `{ ok: true, data: {} }`, and subsequent saves overwrite both `sheets.json` and `sheets.json.bak` with empty data.
+
+**Fix:**
+- Copy `path` to `bak_path` (`tokio::fs::copy(path, &bak_path).await`) before `tokio::fs::rename(&tmp_path, path).await` so `path` is atomically replaced in a single step and is never absent on disk.
+- In `load_sheets_impl`, if `sheets.json` is missing or fails decryption while `sheets.json.bak` exists and decrypts cleanly, restore from `sheets.json.bak` and surface a recovery warning.
+
+### R-H4. Legacy plaintext files are not re-encrypted on load, triggering a downgrade block on the next launch
+**Where:** [`sheets.rs` L60-66](../../../src-tauri/src/commands/sheets.rs#L60-L66), [`settings.rs` L48-54](../../../src-tauri/src/commands/settings.rs#L48-L54), [`timers.rs` L41-42](../../../src-tauri/src/commands/timers.rs#L41-L42), [`state.rs` L152](../../../src-tauri/src/state.rs#L152)
+
+**Trace:**
+1. On first run (`is_new_key = true`), `state.decrypt()` allows legacy plaintext files and returns `DecryptResult::WasPlaintext`.
+2. `sheets.rs` and `settings.rs` set `*state.has_legacy_plaintext = true`, which is **never read anywhere in the codebase**, and `timers.rs` ignores `needs_reencrypt()` completely.
+3. If the user closes the app without triggering a save on all three files (e.g. no timer is started so `timers.json` isn't saved), on the second run `is_new_key` is `false`. `state.decrypt()` rejects the unmigrated plaintext file as an `"Insecure downgrade attack"`, sets `write_protected = true`, and blocks all writes.
+
+**Fix:**
+When `result.needs_reencrypt()` is true in `load_sheets_impl`, `load_timers`, or `load_settings` and `state.keychain_available()` is true, immediately encrypt and `atomic_write` the file during load. Remove the dead `has_legacy_plaintext` mutex from `AppState`.
 
 ---
 
@@ -69,17 +133,14 @@ The views array still contains `'import'`, which was removed. `switchView` remov
 
 | ID | Finding | Where | Recommended fix |
 | :--- | :--- | :--- | :--- |
-| M1 | **Rust test touches the production keychain.** `test_two_encryptions_produce_different_ciphertext` calls `probe_keychain()`, which reads or **creates** the real `com.chronoward.app` key on any dev or CI machine. `test_enc1_roundtrip_via_internal_functions` re-implements AES directly and never calls `encrypt()`/`decrypt()`. | [crypto.rs L244-269, L325-339](../../../src-tauri/src/crypto.rs#L244-L339) | Test `encrypt`/`decrypt` with an in-memory `SecretVec`. Put keychain tests behind `#[ignore]` or use a test-only service name. |
-| M2 | **Hours warning steals focus every minute.** `showBanner` emits `warning-active`, and [lib.rs L170-176](../../../src-tauri/src/lib.rs#L170-L176) then calls `show`+`unminimize`+`set_focus`. This fires twice a minute (scheduler + the 60 s JS interval) and sets always-on-top. Keystrokes typed into other apps land in ChronoWard. This conflicts with the "zero-stress / PDA-friendly" invariant. | [app.js L1437-1446](../../../src/app.js#L1437-L1446), [scheduler.rs L113-133](../../../src-tauri/src/scheduler.rs#L113-L133), [app.js L1412-1417](../../../src/app.js#L1412-L1417) | Surface the window once per threshold crossing. After that use `request_user_attention` (taskbar flash) or the overlay, without focusing. Remove the duplicate JS interval. |
-| M3 | **Always-on-top stays on after leaving today.** `checkHoursWarning` returns early when `currentDate !== today` without calling `hideBanner()`, so the banner and always-on-top stay active while viewing other dates. | [app.js L1419-1420](../../../src/app.js#L1419-L1420) | Call `hideBanner()` on the early-return path. |
-| M4 | **XSS blast radius.** CSP allows `script-src 'unsafe-inline'` (needed only because `hud.html`/`overlay.html` use inline scripts), `withGlobalTauri: true`, and every custom command is callable from every window (no app-command ACL). Any HTML injection gets full IPC, including `save_sheets`. | [tauri.conf.json L11-13](../../../src-tauri/tauri.conf.json#L11-L13), [hud.html L191](../../../src/hud.html#L191), [overlay.html L93](../../../src/overlay.html#L93) | Move inline scripts into `.js` modules and drop `'unsafe-inline'` from `script-src`. Restrict commands per window with the `build.rs` app manifest and capability permissions (the HUD needs only `hide_hud_cmd` and `load_settings`). |
-| M5 | **Unvalidated cross-window payload reaches an `innerHTML` sink.** `hud-entry-added` rows are pushed into `sheets` as-is, and `payload.date` can be any key (`''`, `__proto__`). The range view writes `${r.hours}` into `innerHTML` without escaping. | [app.js L224-238](../../../src/app.js#L224-L238), [app.js L1289](../../../src/app.js#L1289) | Check `date` against `^\d{4}-\d{2}-\d{2}$`, build a fresh row object with typed or coerced fields, and escape or `Number()` every interpolated value. |
-| M6 | **Hours input not validated.** `min`/`max` attributes don't stop typed values, so negative or >24 hours are saved (main table and HUD). | [app.js L548](../../../src/app.js#L548), [hud.html L220](../../../src/hud.html#L220) | Clamp to `[0, 24]` in `collectRows` and the HUD. Optionally validate again in Rust (typed `Row` struct instead of `serde_json::Value`). |
-| M7 | **Save ordering is not guaranteed.** Saves are fire-and-forget, and concurrent `save_sheets` calls race for `write_lock` as separate async tasks, so an older snapshot can land last. Each save also re-serialises and encrypts the entire multi-year history. | [app.js L529-540](../../../src/app.js#L529-L540), [sheets.rs L100-118](../../../src-tauri/src/commands/sheets.rs#L100-L118) | Single in-flight save plus a "dirty" re-queue on the frontend, or a monotonic revision number the backend uses to drop stale writes. |
-| M8 | **Save failures are invisible.** Ctrl+S shows "saved to disk" before the result comes back. Every other save failure only goes to `console.error`. | [app.js L1563-1569](../../../src/app.js#L1563-L1569), [app.js L325, L442, L458](../../../src/app.js#L325) | Await the result and show a toast or banner for both success and error. |
-| M9 | **HUD reports "Logged!" with no acknowledgement.** The entry is a fire-and-forget event. If the main renderer is in read-only mode or hasn't loaded, the entry is lost silently. | [hud.html L244-252](../../../src/hud.html#L244-L252) | Have the main window reply with `hud-entry-saved`/`-failed` (or persist through a backend command) and show the real result. |
-| M10 | **Theme rotation never advances for most users.** `installedAt` is only written as a side effect of some other settings save. Users who never touch settings get `W=0` on every launch. | [app.js L72-75](../../../src/app.js#L72-L75) | Save `installedAt` immediately when it's missing (if not read-only), or set it on the backend in `load_settings`. |
-| M11 | **Test coverage doesn't match the risk.** Only 7 frontend tests, all on `utils.js`. `scripts/run_tests.ps1` never runs `cargo test`. No test covers decrypt failure, keychain loss, timer rounding, the HUD payload or midnight rollover. Stage 04's "100% pass" says nothing about coverage. | [tests/utils.test.js](../../../tests/utils.test.js), [run_tests.ps1](../../scripts/run_tests.ps1) | Add Rust tests for C1/H1/H3 using a temp dir and an injected key, and JS tests for `stopTimer` rounding and HUD row validation. Run both suites from the script. |
+| R-M1 | **`Ctrl+2` still passes `'import'` and does nothing (`H4` incomplete).** `switchView()` now guards against invalid IDs, and `index.html` was updated, but the `keydown` handler still has `const views = ['timesheet', 'import', 'settings']`. Pressing `Ctrl+2` calls `switchView('import')` and returns early instead of opening `'timesheets-view'`. | [`app.js` L1588-1593](../../../src/app.js#L1588-L1593) | Change line 1590 to `const views = ['timesheet', 'timesheets-view', 'settings'];`. |
+| R-M2 | **`scheduler.rs` still steals window focus every minute (`M2` incomplete).** While `lib.rs` L137 was updated to `request_user_attention`, `scheduler.rs` still checks `if warning_active` every minute after `warning_time` and calls `window.show()`, `window.unminimize()`, and `window.set_focus()`. | [`scheduler.rs` L118-130](../../../src-tauri/src/scheduler.rs#L118-L130) | Remove the `if warning_active { ... window.set_focus(); }` block in `scheduler.rs` L123-129; let `check-hours-warning` and the one-shot `warning-active` event in `lib.rs` handle attention requests. |
+| R-M3 | **Hours warning banner still stays visible when leaving today (`M3` incomplete).** `hideBanner()` was added inside `checkHoursWarning()` when `currentDate !== getTodayString()`, but `loadSheetForDate()` never calls `checkHoursWarning()`, and the `check-hours-warning` listener at L250 guards `if (currentDate === getTodayString()) checkHoursWarning()`, making the `hideBanner()` early return unreachable on date navigation. | [`app.js` L249-251, L584-592, L1459-1463](../../../src/app.js#L249-L251) | Call `checkHoursWarning()` inside `loadSheetForDate()`, and remove the `if (currentDate === getTodayString())` guard on line 250. |
+| R-M4 | **HUD ack race, leaked listeners, and false-positive `"Logged!"` on save error (`M7`/`M9` incomplete).** `saveCurrentSheet()` catches errors internally and returns `undefined` early when `isSaving` or `store.isEmergencyMode` is true, so `saveCurrentSheet().then(() => emit('hud-entry-saved'))` at L281-285 reports success even when saving failed or is blocked. In `hud.js`, `listen()` Promises are not awaited before `emit('hud-entry-added')`, the 5s timeout rejects without calling `cleanup()` (leaking both listeners), and `commitLog()` does not block `.ticket-invalid` inputs. | [`hud.js` L13-20, L60-86, L120-125](../../../src/hud.js#L60-L86), [`app.js` L278-286, L597-622](../../../src/app.js#L278-L286) | Have `saveCurrentSheet()` return a boolean (or reject on failure) and chain queued saves so callers await the real disk write. In `hud.js`, `await Promise.all([listen(...), listen(...)])` before `emit()`, call `cleanup()` on timeout, and reject invalid ticket numbers in `commitLog()`. |
+| R-M5 | **`Ctrl+S` toasts success in read-only mode / before save completes, and `saveSettings` lacks `try/catch` (`M8` incomplete).** `Ctrl+S` calls `saveCurrentSheet()` without `await` and unconditionally shows `'Timesheet saved to disk'` (even in emergency mode). `saveSettings()` awaits `invoke('save_settings')` without a `try/catch`, dropping errors as unhandled rejections. | [`app.js` L450-481, L1611-1617](../../../src/app.js#L1611-L1617) | `await saveCurrentSheet()` in `Ctrl+S` and only toast success when it returns `true`. Wrap `invoke('save_settings')` in `saveSettings()` in `try/catch` and show an error toast on failure. |
+| R-M6 | **Overlay multi-monitor/taskbar positioning and Pomodoro state desync (`L9`/`L13` follow-up).** `window.rs` uses `overlay.current_monitor()` `size()` without adding `monitor.position()` (moving the overlay back to primary monitor coordinates on secondary displays) and without `monitor.work_area()` (placing bottom corners behind the taskbar). In `app.js`, `cleanSlateToggleTimer()` creates a new row and starts a timer without calling `saveCurrentSheet()`, and `cleanSlateLogFocus()` adds a new row without calling `onDataChange()` (leaving footer totals and weekly chips stale). | [`window.rs` L71-96](../../../src-tauri/src/commands/window.rs#L71-L96), [`app.js` L1105-1120, L1137-1145](../../../src/app.js#L1105-L1145) | Use `monitor.work_area()` (`position` + `size`) in `window.rs`. Call `saveCurrentSheet()` and `onDataChange()` in both `cleanSlateToggleTimer()` and `cleanSlateLogFocus()`. |
+| R-M7 | **Blank rows with active timers are dropped on save, and hours upper bound (`24`) is not enforced in steppers/timers (`M6`/`L14` follow-up).** `collectRows()` skips any row with `hours === 0` and empty text even if `timers[tr.dataset.timerId]` is running or paused, orphaning the timer on date change or reload. `stepHours()` and `stopTimer()` do not clamp to `<= 24`, causing `updateTotals()` to show values `> 24` while `collectRows()` silently clamps to `24` on disk. | [`app.js` L634-637, L853-865](../../../src/app.js#L634-L637), [`timers.js` L96-99](../../../src/timers.js#L96-L99) | Preserve rows in `collectRows()` when `timers[tr.dataset.timerId]` exists. Clamp `.hours-input` to `[0, 24]` in `stepHours()`, `stopTimer()`, and on input `blur`. |
+| R-M8 | **Per-window command ACLs and backend test automation (`M4`/`M11` incomplete).** `capabilities/hud.json` and `overlay.json` still allow all custom commands across all windows. `scripts/run_tests.ps1` still only runs `npm test`, and `test_c1_decrypt_failure_blocks_writes` leaves its temp directory behind in `std::env::temp_dir()`. | [`hud.json`](../../../src-tauri/capabilities/hud.json), [`overlay.json`](../../../src-tauri/capabilities/overlay.json), [`run_tests.ps1`](../../scripts/run_tests.ps1), [`sheets.rs` L150-181](../../../src-tauri/src/commands/sheets.rs#L150-L181) | Restrict per-window command permissions in capabilities, add `cargo test` to `run_tests.ps1`, and clean up `temp_dir` at the end of `test_c1_decrypt_failure_blocks_writes`. |
 
 ---
 
@@ -87,20 +148,13 @@ The views array still contains `'import'`, which was removed. `switchView` remov
 
 | ID | Finding | Where |
 | :--- | :--- | :--- |
-| L1 | **Dead code adds IPC surface.** `api.exportCSVFile` (wrong args, would fail if called), `minimizeToTray`, `setAlwaysOnTop`, `setWarningActive`, `listenEvent`. `parseCSV`, `copyTaskText`, `showImportedDesc`. Registered but unused commands `import_csv`, `get_data_dir`, `show_overlay_cmd`. The `overlay-clicked` listener. `hours-updated` is emitted but nothing listens. | [api.js L38-63](../../../src/api.js#L38-L63), [app.js L1343-1409](../../../src/app.js#L1343-L1409), [lib.rs L80-91, L156-166](../../../src-tauri/src/lib.rs#L80-L166) |
-| L2 | **Split state.** Module variables in `app.js` shadow `store` (sheets never go into `store`). `isEmergencyMode` exists both as an `app.js` variable and as `store.isEmergencyMode`, and `timers.js` reads the store copy. The architecture spec says `store` is the source of truth. | [app.js L11-19](../../../src/app.js#L11-L19), [timers.js L69](../../../src/timers.js#L69) |
-| L3 | **Doc and schema drift.** The `settings.rs` header says settings aren't encrypted (they always are). The `save_settings` comment says "store plaintext with a warning" but the code refuses. The `KEY_SIZE` comment says the OS derives the key (it doesn't). `data_schema.json` row/timer shapes (`id/name/ticket/notes/seconds`) don't match the real ones (`timerId/task/ticketNum/description/ot`, `elapsed/startedAt`). The overlay enum is missing `center-*`. The ticket pattern (12) contradicts Dual 12/12 (24). The policy says temp files use `.tmp.<random>` (they use a nanosecond timestamp). | [settings.rs L1-14, L90-93](../../../src-tauri/src/commands/settings.rs#L1-L14), [crypto.rs L27-31](../../../src-tauri/src/crypto.rs#L27-L31), [data_schema.json](../../_config/data_schema.json) |
-| L4 | **`.expect()` on `into_path()` in CSV commands.** With `panic = "abort"`, any panic kills the app. The blocking dialog runs inside an async command, and import reads files of any size. | [csv.rs L56, L89](../../../src-tauri/src/commands/csv.rs#L56) |
-| L5 | **CSV export.** No UTF-8 BOM, so Excel garbles macrons and emoji. LF line endings. The `\t`/`\r` triggers in the regex never match because `trimStart()` strips them first. | [utils.js L22-29](../../../src/utils.js#L22-L29), [app.js L1117-1119](../../../src/app.js#L1117-L1119) |
-| L6 | `escHtml(0)` returns `''`, the same falsy bug that was fixed for CSV (`str ?? ''`). | [utils.js L13-14](../../../src/utils.js#L13-L14) |
-| L7 | `generateId` uses `Math.random`. Use `crypto.randomUUID()` instead. | [utils.js L6-11](../../../src/utils.js#L6-L11) |
-| L8 | A failed global-shortcut registration is ignored silently, so the HUD becomes unreachable with no feedback. | [lib.rs L95](../../../src-tauri/src/lib.rs#L95) |
-| L9 | Overlay placement assumes the primary monitor's full size and a 48 px bottom taskbar. It is wrong for multi-monitor setups and top or side taskbars. | [window.rs L76-102](../../../src-tauri/src/commands/window.rs#L76-L102) |
-| L10 | Autostart sync re-implements settings loading and accepts plaintext via `Some(raw)`, skipping `state.decrypt()` and its downgrade check. | [lib.rs L120-146](../../../src-tauri/src/lib.rs#L120-L146) |
-| L11 | Crypto nits. Redundant `!starts_with("enc")`. No AAD binding the file identity, so `timers.json` ciphertext would decrypt fine as `sheets.json`. Hex key strings aren't zeroised. | [crypto.rs L158](../../../src-tauri/src/crypto.rs#L158), [crypto.rs L131-133](../../../src-tauri/src/crypto.rs#L131-L133) |
-| L12 | The Windows installer is unsigned (`certificateThumbprint: null`), so users get a SmartScreen warning. The WebView2 bootstrapper downloads at install time, which should be stated next to the "zero network" claim. | [tauri.conf.json L83-90](../../../src-tauri/tauri.conf.json#L83-L90) |
-| L13 | The Pomodoro "Log" toast always says 0.5h, whatever `hourIncrement` is set to. The new-task path hard-codes 0.5. | [app.js L1035-1055](../../../src/app.js#L1035-L1055) |
-| L14 | Blank rows are saved for every date visited. Clearing the date input saves under the key `""`. The range viewer loop is unbounded (from year 0001 means millions of iterations). `init()` has no try/catch, so any IPC failure leaves a half-initialised UI with no message. | [app.js L104-109, L519-527](../../../src/app.js#L104-L109), [app.js L1197-1223](../../../src/app.js#L1197-L1223), [app.js L40-126](../../../src/app.js#L40-L126) |
+| R-L1 | **Remaining schema and comment drift (`L3` incomplete).** `data_schema.json` L58 uses `"auto_start"` (snake_case) instead of `"autoStart"` (`#[serde(rename_all = "camelCase")]`), omits `projectMode`, `detailedMode`, and `focusTimes`, and retains nonexistent `themeSetAt`. `settings.rs` L3-11 and L92-95 still state settings are unencrypted by default and saved as plaintext on keychain failure. `csv.rs` L1 still lists removed `import_csv, get_data_dir`. `architecture_spec.md` L69-70 and `security_policy.md` L26 still list old command names and `.tmp.<random>`. | [`data_schema.json` L43-60](../../_config/data_schema.json#L43-L60), [`settings.rs` L1-14, L92-95](../../../src-tauri/src/commands/settings.rs#L1-L14), [`csv.rs` L1](../../../src-tauri/src/commands/csv.rs#L1) |
+| R-L2 | **Range Viewer description modal discards edits silently & inverted date range UX.** Clicking `📝` in the Range Viewer opens `#descModal` with an editable `<textarea>` while setting `activeDescTimerId = null`; any text the user edits is silently discarded by `saveDescModal()`. Also, selecting `fromDate > toDate` displays `"No timesheets logged..."` instead of an invalid-range message. | [`app.js` L1286-1298, L1429-1436](../../../src/app.js#L1429-L1436) |
+| R-L3 | **Theme grid highlights `settings.theme` instead of the active auto-rotated theme.** When `autoRotateTheme` is enabled, `applyTheme(activeTheme, false)` updates `document.body.className`, but `renderThemeGrid()` marks `settings.theme === theme.id` as `.active`, highlighting the base theme rather than the rotated theme currently in use. | [`app.js` L81-90, L404-433](../../../src/app.js#L404-L433) |
+| R-L4 | **`minHoursWarning = 0` is overwritten by `7.5` due to falsy `||`.** `#settingMinHours` has `min="0"`, but `applySettingsToUI()`, `saveSettings()`, `renderWeeklyCompletion()`, and `checkHoursWarning()` use `settings.minHoursWarning || 7.5`, which turns `0` into `7.5`. | [`app.js` L325, L438, L455, L1470](../../../src/app.js#L438-L455) |
+| R-L5 | **Remaining split state, dead code, and `Math.random` in HUD (`L1`/`L2`/`L7` incomplete).** `app.js` L11-18 still keeps module-level state variables (`sheets`, `currentDate`, `projectMode`, `detailedMode`, `isCleanSlateMode` are never written to `store`). `app.js` L893 still emits `hours-updated` with no listener. `hud.js` L51 still uses `Math.random().toString(36).substr(2, 4)` instead of `crypto.randomUUID()`. `Cargo.toml` L54 includes unused `thiserror`. | [`app.js` L11-18, L893](../../../src/app.js#L11-L18), [`hud.js` L51](../../../src/hud.js#L51), [`Cargo.toml` L54](../../../src-tauri/Cargo.toml#L54) |
+| R-L6 | **Blocking dialog on async worker & silent shortcut registration failure (`L4`/`L8` partial).** `csv.rs` L47 calls `blocking_save_file()` directly inside an `async fn` command without `spawn_blocking`. `lib.rs` L92-94 logs `warn!` when `Ctrl+Shift+Space` fails to register without notifying the user in the UI. | [`csv.rs` L47](../../../src-tauri/src/commands/csv.rs#L47), [`lib.rs` L92-94](../../../src-tauri/src/lib.rs#L92-L94) |
+| R-L7 | **No AAD binding filename to AES-256-GCM ciphertext (`L11` partial).** `crypto::encrypt` and `crypto::decrypt` do not bind the target filename (`sheets.json`, `timers.json`, `settings.json`) as Associated Authenticated Data, allowing encrypted files to be swapped on disk undetected. | [`crypto.rs` L120-144, L213-240](../../../src-tauri/src/crypto.rs#L120-L144) |
 
 ---
 
@@ -108,20 +162,19 @@ The views array still contains `'import'`, which was removed. `switchView` remov
 
 ```mermaid
 flowchart LR
-  A["C1 write-protect on decrypt failure"] --> B["H1 no key regen with enc1 data"]
-  B --> C["H3 fsync + .bak rotation"]
-  C --> D["M11/M1 regression tests for data-loss paths"]
-  D --> E["H2 midnight rollover + H4 Ctrl+2"]
-  E --> F["M2/M3 warning UX, M8/M9 save feedback"]
-  F --> G["M4/M5/M6 hardening + validation"]
-  G --> H["Low: dead code, drift, nits"]
+  A["R-H1 Fix 60s date-reset bug in rollover interval"] --> B["R-H2 Scope write_protected + fix emergency mode DOM order"]
+  B --> C["R-H3 Copy-then-rename .bak + recover from .bak"]
+  C --> D["R-H4 Re-encrypt legacy plaintext on load"]
+  D --> E["R-M1..R-M3 Fix Ctrl+2, scheduler focus, and banner hide"]
+  E --> F["R-M4..R-M7 Fix HUD ack/leak, Ctrl+S, overlay & Pomodoro"]
+  F --> G["R-M8 & R-L1..R-L7 Capabilities, tests, schema & polish"]
 ```
 
 > [!IMPORTANT]
-> C1, H1 and H3 together form one data-loss chain. Recommendation: block the v2.0.5 release (Stage 05) until all three are fixed and covered by tests.
+> **R-H1** (60-second reset when viewing any past date) and **R-H2 / R-H3 / R-H4** (false-positive lockouts and unrecovered `.bak` files) directly affect daily usability and data safety. Recommend resolving `R-H1` through `R-H4` and `R-M1` through `R-M7` before signing off Stage 05 (v2.0.5 release).
 
 ## Review gate
-- [ ] Human triage: accept / defer / reject each finding
-- [ ] Accepted Critical/High items sent back to Stage 03 as rework
-- [ ] Regression tests for accepted items added in Stage 04
-- [ ] `data_schema.json` and `security_policy.md` (Layer 3) updated to match reality (L3)
+- [ ] Human triage: accept / defer / reject each Pass 2 finding
+- [ ] Accepted High/Medium items sent back to Stage 03 as rework
+- [ ] Regression tests for `R-H1`–`R-H4` added in Stage 04 (`run_tests.ps1` updated to run both frontend and backend suites)
+- [ ] `data_schema.json`, `architecture_spec.md`, and `security_policy.md` (Layer 3) aligned with implementation (`R-L1`)
