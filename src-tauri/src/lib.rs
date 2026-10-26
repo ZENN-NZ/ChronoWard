@@ -89,8 +89,13 @@ pub fn run() {
         .setup(|app| {
             use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
             let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
-            if let Err(e) = app.global_shortcut().register(shortcut) {
-                warn!("Failed to register global shortcut: {e}");
+            let shortcut_err = app
+                .global_shortcut()
+                .register(shortcut)
+                .err()
+                .map(|e| e.to_string());
+            if let Some(ref err_msg) = shortcut_err {
+                warn!("Failed to register global shortcut: {err_msg}");
             }
 
             // Set up tray — store the handle so it isn't dropped and disappears
@@ -118,7 +123,7 @@ pub fn run() {
             let app_handle_auto = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle_auto.state::<AppState>();
-                let settings = crate::commands::settings::load_settings(state).await.unwrap_or_default();
+                let settings = crate::commands::settings::load_settings_impl(&state).await.unwrap_or_default();
                 use tauri_plugin_autostart::ManagerExt;
                 let manager = app_handle_auto.autolaunch();
                 if settings.auto_start {
@@ -138,13 +143,16 @@ pub fn run() {
                 }
             });
 
-            // renderer-ready → emit emergency-mode if needed
+            // renderer-ready → emit emergency-mode or shortcut warning if needed
             let app_handle3 = app.handle().clone();
             app.listen("renderer-ready", move |_| {
                 let state = app_handle3.state::<AppState>();
                 if let Some(ref info) = state.emergency_mode {
                     let _ = app_handle3.emit("emergency-mode", info);
                     info!("Emitted emergency-mode event to renderer");
+                }
+                if let Some(ref err_msg) = shortcut_err {
+                    let _ = app_handle3.emit("shortcut-registration-failed", err_msg);
                 }
             });
 
@@ -199,7 +207,14 @@ fn ensure_data_dir(dir: &PathBuf) {
 }
 
 fn check_encrypted_data_exists(data_dir: &std::path::Path) -> bool {
-    for filename in &["sheets.json", "timers.json", "settings.json"] {
+    for filename in &[
+        "sheets.json",
+        "sheets.json.bak",
+        "timers.json",
+        "timers.json.bak",
+        "settings.json",
+        "settings.json.bak",
+    ] {
         let path = data_dir.join(filename);
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {

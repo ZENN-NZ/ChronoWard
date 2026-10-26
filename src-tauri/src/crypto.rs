@@ -246,30 +246,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_enc1_roundtrip_via_internal_functions() {
-        use aes_gcm::{
-            aead::{Aead, KeyInit},
-            Aes256Gcm, Nonce,
-        };
-        use rand::RngCore;
-
-        let key_bytes: Vec<u8> = (0..32).collect(); // deterministic test key
-        let cipher = Aes256Gcm::new_from_slice(&key_bytes).unwrap();
-
-        let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
+    fn test_enc1_roundtrip_via_public_api() {
+        let key = SecretVec::new((0..32).collect());
         let plaintext = r#"{"2025-01-15": [{"task": "Design review", "hours": 3.5}]}"#;
-        let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes()).unwrap();
 
-        let mut combined = nonce_bytes.to_vec();
-        combined.extend_from_slice(&ciphertext);
+        let encrypted = encrypt(plaintext, &key).unwrap();
+        assert!(encrypted.starts_with(PREFIX_KEYCHAIN));
 
-        let decrypted_bytes = cipher.decrypt(nonce, ciphertext.as_ref()).unwrap();
-        let decrypted = String::from_utf8(decrypted_bytes).unwrap();
-
-        assert_eq!(plaintext, decrypted);
+        let res = decrypt(&encrypted, Some(&key), false).unwrap();
+        assert!(!res.needs_reencrypt());
+        assert_eq!(res.into_plaintext(), plaintext);
     }
 
     #[test]

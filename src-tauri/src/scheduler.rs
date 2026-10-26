@@ -115,18 +115,6 @@ async fn tick(
         if current_secs >= warning_secs {
             if *last_warning_minute != Some(current_time_key) {
                 *last_warning_minute = Some(current_time_key);
-                let warning_active = {
-                    let state = app.state::<AppState>();
-                    let guard = state.warning_active.lock().unwrap_or_else(|e| e.into_inner());
-                    *guard
-                };
-                if warning_active {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
-                }
                 let _ = app.emit("check-hours-warning", ());
             }
         }

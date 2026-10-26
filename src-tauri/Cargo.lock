@@ -539,7 +539,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
- "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -69,30 +69,32 @@ pub fn show_overlay(app: &tauri::AppHandle) {
         };
 
         if let Ok(Some(monitor)) = overlay.current_monitor() {
-            let size = monitor.size();
+            let work_area = monitor.work_area();
             let scale = monitor.scale_factor();
-            let win_size = 64.0;
-            let margin = 12.0;
+            let win_size = (64.0 * scale) as i32;
+            let margin = (12.0 * scale) as i32;
 
-            let monitor_w = size.width as f64 / scale;
-            let monitor_h = size.height as f64 / scale;
+            let origin_x = work_area.position.x;
+            let origin_y = work_area.position.y;
+            let work_w = work_area.size.width as i32;
+            let work_h = work_area.size.height as i32;
 
             let (x, y) = match position.as_str() {
-                "top-left" => (margin, margin),
-                "center-left" => (margin, (monitor_h - win_size) / 2.0),
-                "bottom-left" => (margin, monitor_h - win_size - margin),
-                "center-right" => (monitor_w - win_size - margin, (monitor_h - win_size) / 2.0),
-                "bottom-right" => (
-                    monitor_w - win_size - margin,
-                    monitor_h - win_size - margin,
+                "top-left" => (origin_x + margin, origin_y + margin),
+                "center-left" => (origin_x + margin, origin_y + (work_h - win_size) / 2),
+                "bottom-left" => (origin_x + margin, origin_y + work_h - win_size - margin),
+                "center-right" => (
+                    origin_x + work_w - win_size - margin,
+                    origin_y + (work_h - win_size) / 2,
                 ),
-                _ => (monitor_w - win_size - margin, margin),
+                "bottom-right" => (
+                    origin_x + work_w - win_size - margin,
+                    origin_y + work_h - win_size - margin,
+                ),
+                _ => (origin_x + work_w - win_size - margin, origin_y + margin),
             };
 
-            let _ = overlay.set_position(tauri::PhysicalPosition::new(
-                (x * scale) as i32,
-                (y * scale) as i32,
-            ));
+            let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
         }
         let _ = overlay.set_shadow(false);
         let _ = overlay.show();
