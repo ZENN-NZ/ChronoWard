@@ -60,7 +60,18 @@
         "installedAt": { "type": "integer" },
         "warningTime": { "type": "string" },
         "minHoursWarning": { "type": "number", "minimum": 0, "maximum": 24 },
-        "autoStart": { "type": "boolean" }
+        "autoStart": { "type": "boolean" },
+        "schemeMode": { "type": "string", "enum": ["auto", "dark", "light"] },
+        "customSeedEnabled": { "type": "boolean" },
+        "customSeedColor": { "type": "string" },
+        "pomoWorkMinutes": { "type": "integer", "minimum": 1, "maximum": 180 },
+        "pomoShortBreakMinutes": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "pomoLongBreakMinutes": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "pomoSessionsBeforeLongBreak": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "pomoAutoStartBreaks": { "type": "boolean" },
+        "pomoAutoStartWork": { "type": "boolean" },
+        "pomoAutoLogWork": { "type": "boolean" },
+        "pomoSoundEnabled": { "type": "boolean" }
       }
     }
   }

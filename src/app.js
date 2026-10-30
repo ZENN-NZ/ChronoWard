@@ -2,10 +2,11 @@ import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWe
 import * as api from './api.js';
 import { store } from './state.js';
 import * as timersModule from './timers.js';
+import { M3_THEMES, applyM3ThemeToDocument } from './m3-color.js';
 
-const invoke = (cmd, args) => window.__TAURI__?.core?.invoke(cmd, args);
-const listen = (event, handler) => window.__TAURI__?.event?.listen(event, handler);
-const emit = (event, payload) => window.__TAURI__?.event?.emit(event, payload);
+const invoke = (cmd, args) => window.__TAURI__?.core?.invoke(cmd, args) ?? Promise.resolve();
+const listen = (event, handler) => window.__TAURI__?.event?.listen(event, handler) ?? Promise.resolve(() => {});
+const emit = (event, payload) => window.__TAURI__?.event?.emit(event, payload) ?? Promise.resolve();
 
 // ---- State ----
 let settings             = {};
@@ -20,18 +21,19 @@ let isCleanSlateMode     = false;    // Clean Slate Isolation Mode state
 let rowCounter      = 0;
 let dataChangeTimer = null;
 
-const THEMES = [
-  { id: 'midnight', name: 'Midnight', colors: ['#0d0e14', '#7c6df8', '#252636'] },
-  { id: 'obsidian', name: 'Obsidian', colors: ['#090a0f', '#5b6af0', '#1e1f2e'] },
-  { id: 'aurora',   name: 'Aurora',   colors: ['#0a0e1a', '#00d4ff', '#1c2840'] },
-  { id: 'ember',    name: 'Ember',    colors: ['#0f0c0a', '#ff6630', '#2e221e'] },
-  { id: 'forest',   name: 'Forest',   colors: ['#080f0a', '#44d980', '#1a2e1e'] },
-  { id: 'rose',     name: 'Rose',     colors: ['#0f080e', '#e066cc', '#2e1a2e'] },
-  { id: 'steel',    name: 'Steel',    colors: ['#0a0c10', '#8899cc', '#222630'] },
-  { id: 'void',     name: 'Void',     colors: ['#000000', '#ffffff', '#181818'] },
-  { id: 'neon',     name: 'Neon',     colors: ['#050510', '#00ffcc', '#1a1a3a'] },
-  { id: 'light',    name: 'Light',    colors: ['#f5f6fa', '#5b6af0', '#d8dae8'] },
+const FALLBACK_THEMES = [
+  { id: 'midnight', name: 'Midnight', seed: '#3b7cf5', isDark: true,  isOled: false, colors: ['#0e1225', '#b9c3ff', '#ffb4a4'] },
+  { id: 'obsidian', name: 'Obsidian', seed: '#9d5cff', isDark: true,  isOled: false, colors: ['#0f0814', '#dab9ff', '#ffb68e'] },
+  { id: 'aurora',   name: 'Aurora',   seed: '#00d4ff', isDark: true,  isOled: false, colors: ['#0c1518', '#3cd7ff', '#c0c3f0'] },
+  { id: 'ember',    name: 'Ember',    seed: '#ff6630', isDark: true,  isOled: false, colors: ['#19120e', '#ffb59a', '#cbc99b'] },
+  { id: 'forest',   name: 'Forest',   seed: '#44d980', isDark: true,  isOled: false, colors: ['#0e1510', '#4de086', '#88d2dc'] },
+  { id: 'rose',     name: 'Rose',     seed: '#e066cc', isDark: true,  isOled: false, colors: ['#171216', '#ffabee', '#f4b8af'] },
+  { id: 'steel',    name: 'Steel',    seed: '#8899cc', isDark: true,  isOled: false, colors: ['#121319', '#b3c5ff', '#ebb8d5'] },
+  { id: 'void',     name: 'Void',     seed: '#a0a0a0', isDark: true,  isOled: true,  colors: ['#000000', '#c6c6c6', '#c6c6c6'] },
+  { id: 'neon',     name: 'Neon',     seed: '#00ffcc', isDark: true,  isOled: false, colors: ['#0c1512', '#00e0b3', '#8dd0e8'] },
+  { id: 'light',    name: 'Light',    seed: '#5b6af0', isDark: false, isOled: false, colors: ['#faf9ff', '#3551d2', '#824f61'] },
 ];
+const THEMES = (typeof M3_THEMES !== 'undefined' && Array.isArray(M3_THEMES) && M3_THEMES.length) ? M3_THEMES : FALLBACK_THEMES;
 
 
 
@@ -93,6 +95,7 @@ async function init() {
   applyTheme(activeTheme, false);
   renderThemeGrid();
   applySettingsToUI();
+  initPomodoroFromSettings();
 
   projectMode = settings.projectMode || false;
   store.projectMode = projectMode;
@@ -231,9 +234,27 @@ function setupStaticListeners() {
   if (exitCleanSlateBtn) exitCleanSlateBtn.addEventListener('click', () => toggleCleanSlateMode());
   
   document.getElementById('cleanSlateTaskSelect')?.addEventListener('change', () => onCleanSlateTaskSelectChange());
+  document.getElementById('cleanSlateCustomInput')?.addEventListener('input', () => syncCleanSlateTaskEditToRow());
+  document.getElementById('cleanSlateProjectSelect')?.addEventListener('change', () => syncCleanSlateTaskEditToRow());
   document.getElementById('cleanSlateStartPauseBtn')?.addEventListener('click', () => cleanSlateToggleTimer());
   document.getElementById('cleanSlateRingWrap')?.addEventListener('click', () => cleanSlateToggleTimer());
   document.getElementById('cleanSlateLogBtn')?.addEventListener('click', () => cleanSlateLogFocus());
+  document.getElementById('pomoResetBtn')?.addEventListener('click', () => onPomodoroReset());
+  document.getElementById('pomoSkipBtn')?.addEventListener('click', () => onPomodoroSkip());
+  document.getElementById('pomoConfigToggleBtn')?.addEventListener('click', () => togglePomodoroConfigPanel());
+
+  document.querySelectorAll('.pomo-phase-tab').forEach(tab => {
+    tab.addEventListener('click', () => onPomodoroPhaseTabClick(tab.dataset.pomoPhase));
+  });
+  document.querySelectorAll('.pomo-preset-chip').forEach(chip => {
+    chip.addEventListener('click', () => applyPomodoroPreset(chip.dataset.pomoPreset));
+  });
+  ['pomoWorkMinsInput', 'pomoShortBreakMinsInput', 'pomoLongBreakMinsInput', 'pomoCyclesInput'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => onPomodoroConfigInputChanged());
+  });
+  ['pomoAutoStartBreaks', 'pomoAutoStartWork', 'pomoAutoLogWork', 'pomoSoundEnabled'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => onPomodoroConfigInputChanged());
+  });
 
   // Project / Detailed mode toggles
   document.getElementById('projectModeToggle').addEventListener('change', () => toggleProjectMode());
@@ -252,6 +273,31 @@ function setupStaticListeners() {
   document.getElementById('saveSettingsBtn').addEventListener('click', () => saveSettings());
   document.getElementById('settingProjectMode').addEventListener('change', () => syncProjectModeFromSettings());
   document.getElementById('settingDetailedMode').addEventListener('change', () => syncDetailedModeFromSettings());
+
+  // M3 Dynamic Color controls
+  const schemeModeEl = document.getElementById('settingSchemeMode');
+  if (schemeModeEl) {
+    schemeModeEl.addEventListener('change', (e) => {
+      settings.schemeMode = e.target.value;
+      applyTheme(currentActiveTheme, false);
+    });
+  }
+  const customSeedToggleEl = document.getElementById('settingCustomSeedToggle');
+  if (customSeedToggleEl) {
+    customSeedToggleEl.addEventListener('change', (e) => {
+      settings.customSeedEnabled = e.target.checked;
+      applyTheme(currentActiveTheme, false);
+    });
+  }
+  const customSeedColorEl = document.getElementById('settingCustomSeedColor');
+  if (customSeedColorEl) {
+    customSeedColorEl.addEventListener('input', (e) => {
+      settings.customSeedColor = e.target.value;
+      if (settings.customSeedEnabled) {
+        applyTheme(currentActiveTheme, false);
+      }
+    });
+  }
 
   // Description modal
   document.getElementById('descModal').addEventListener('click', (e) => closeDescModal(e));
@@ -389,7 +435,32 @@ let currentActiveTheme = 'midnight';
 function applyTheme(themeId, shouldSave = true) {
   if (!THEMES.find(t => t.id === themeId)) return;
   currentActiveTheme = themeId;
-  document.body.className = `theme-${themeId}`;
+
+  const customSeedEnabled = Boolean(settings.customSeedEnabled);
+  const customSeedColor = settings.customSeedColor || '#6750a4';
+  const schemeMode = settings.schemeMode || 'auto';
+
+  const m3Options = {
+    customSeed: customSeedEnabled ? customSeedColor : null,
+    seed: customSeedEnabled ? customSeedColor : undefined,
+    schemeMode: schemeMode,
+  };
+  if (schemeMode === 'dark') m3Options.isDark = true;
+  if (schemeMode === 'light') m3Options.isDark = false;
+
+  if (typeof applyM3ThemeToDocument === 'function') {
+    applyM3ThemeToDocument(themeId, m3Options, document);
+  } else {
+    document.body.className = `theme-${themeId}`;
+  }
+
+  // Broadcast theme update to any secondary windows (like Quick Capture HUD)
+  emit('theme-updated', {
+    themeId,
+    customSeedEnabled,
+    customSeedColor,
+    schemeMode,
+  }).catch(() => {});
 
   if (shouldSave) {
     const installedAt = settings.installedAt || Date.now();
@@ -414,11 +485,17 @@ function applyTheme(themeId, shouldSave = true) {
 }
 
 function selectTheme(themeId) {
+  if (settings.customSeedEnabled) {
+    settings.customSeedEnabled = false;
+    const customSeedToggleEl = document.getElementById('settingCustomSeedToggle');
+    if (customSeedToggleEl) customSeedToggleEl.checked = false;
+  }
   applyTheme(themeId, true);
 }
 
 function renderThemeGrid() {
   const grid = document.getElementById('themeGrid');
+  if (!grid) return;
   grid.innerHTML = '';
   const activeId = currentActiveTheme || settings.theme || 'midnight';
   THEMES.forEach(theme => {
@@ -430,15 +507,56 @@ function renderThemeGrid() {
     swatch.setAttribute('aria-checked', isActive ? 'true' : 'false');
     swatch.setAttribute('aria-label', `${theme.name} theme`);
     swatch.setAttribute('tabindex', '0');
-    swatch.onclick = () => selectTheme(theme.id);
-    swatch.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') selectTheme(theme.id); };
+    swatch.addEventListener('click', () => selectTheme(theme.id));
+    swatch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectTheme(theme.id);
+      }
+    });
 
+    // Rich M3 3-tone HCT preview: Surface container base + Primary pill + Tertiary accent dot
     const preview = document.createElement('div');
     preview.className = 'swatch-preview';
-    preview.style.cssText = `background:linear-gradient(135deg,${theme.colors[0]} 50%,${theme.colors[2]} 100%);position:relative;`;
-    const dot = document.createElement('div');
-    dot.style.cssText = `position:absolute;bottom:4px;right:4px;width:8px;height:8px;border-radius:50%;background:${theme.colors[1]};`;
-    preview.appendChild(dot);
+    preview.style.cssText = `
+      background: ${theme.colors[0]};
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.06);
+    `;
+
+    // Primary tonal pill
+    const primaryPill = document.createElement('div');
+    primaryPill.className = 'swatch-primary-pill';
+    primaryPill.title = 'Primary Tonal Accent';
+    primaryPill.style.cssText = `
+      width: 20px;
+      height: 12px;
+      border-radius: 9999px;
+      background: ${theme.colors[1]};
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    `;
+
+    // Tertiary accent dot
+    const tertiaryDot = document.createElement('div');
+    tertiaryDot.className = 'swatch-tertiary-dot';
+    tertiaryDot.title = 'Tertiary Accent Tone';
+    tertiaryDot.style.cssText = `
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: ${theme.colors[2]};
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    `;
+
+    preview.appendChild(primaryPill);
+    preview.appendChild(tertiaryDot);
 
     const name = document.createElement('div');
     name.className = 'swatch-name';
@@ -463,6 +581,12 @@ function applySettingsToUI() {
   document.getElementById('focusTime1').value = ft[0] || '11:00';
   document.getElementById('focusTime2').value = ft[1] || '14:00';
   document.getElementById('focusTime3').value = ft[2] || '16:00';
+  const schemeModeEl = document.getElementById('settingSchemeMode');
+  if (schemeModeEl) schemeModeEl.value = settings.schemeMode || 'auto';
+  const customSeedToggleEl = document.getElementById('settingCustomSeedToggle');
+  if (customSeedToggleEl) customSeedToggleEl.checked = Boolean(settings.customSeedEnabled);
+  const customSeedColorEl = document.getElementById('settingCustomSeedColor');
+  if (customSeedColorEl) customSeedColorEl.value = settings.customSeedColor || '#6750a4';
 }
 
 async function saveSettings() {
@@ -482,6 +606,12 @@ async function saveSettings() {
     document.getElementById('focusTime3').value || '16:00',
   ];
   settings.autoStart = document.getElementById('settingAutoStart').checked;
+  const schemeModeEl = document.getElementById('settingSchemeMode');
+  if (schemeModeEl) settings.schemeMode = schemeModeEl.value;
+  const customSeedToggleEl = document.getElementById('settingCustomSeedToggle');
+  if (customSeedToggleEl) settings.customSeedEnabled = customSeedToggleEl.checked;
+  const customSeedColorEl = document.getElementById('settingCustomSeedColor');
+  if (customSeedColorEl) settings.customSeedColor = customSeedColorEl.value;
   settings.projectMode = document.getElementById('settingProjectMode').checked;
   projectMode = settings.projectMode;
   document.getElementById('projectModeToggle').checked = projectMode;
@@ -495,6 +625,7 @@ async function saveSettings() {
   store.settings = settings;
   try {
     await invoke('save_settings', { settings });
+    applyTheme(settings.theme || currentActiveTheme, false);
     showToast('Settings saved ✓');
   } catch (err) {
     console.error('save_settings failed:', err);
@@ -1058,6 +1189,193 @@ function updateTimerDisplay(timerId) {
 }
 
 let cleanSlateActiveTimerId = 'new';
+let pomodoroState = timersModule.createPomodoroState();
+let pomodoroIntervalId = null;
+
+function getPomodoroConfigFromSettings() {
+  return {
+    workMinutes: settings.pomoWorkMinutes ?? 25,
+    shortBreakMinutes: settings.pomoShortBreakMinutes ?? 5,
+    longBreakMinutes: settings.pomoLongBreakMinutes ?? 15,
+    sessionsBeforeLongBreak: settings.pomoSessionsBeforeLongBreak ?? 4,
+    autoStartBreaks: settings.pomoAutoStartBreaks ?? false,
+    autoStartWork: settings.pomoAutoStartWork ?? false,
+    autoLogWork: settings.pomoAutoLogWork !== undefined ? settings.pomoAutoLogWork : true,
+    soundEnabled: settings.pomoSoundEnabled !== undefined ? settings.pomoSoundEnabled : true,
+  };
+}
+
+function initPomodoroFromSettings() {
+  const cfg = getPomodoroConfigFromSettings();
+  timersModule.updatePomodoroConfig(pomodoroState, cfg);
+  syncPomodoroConfigInputsFromState();
+  renderPomodoroUI();
+}
+
+function syncPomodoroConfigInputsFromState() {
+  const cfg = pomodoroState.config;
+  const workEl = document.getElementById('pomoWorkMinsInput');
+  const shortEl = document.getElementById('pomoShortBreakMinsInput');
+  const longEl = document.getElementById('pomoLongBreakMinsInput');
+  const cyclesEl = document.getElementById('pomoCyclesInput');
+  const autoBreaksEl = document.getElementById('pomoAutoStartBreaks');
+  const autoWorkEl = document.getElementById('pomoAutoStartWork');
+  const autoLogEl = document.getElementById('pomoAutoLogWork');
+  const soundEl = document.getElementById('pomoSoundEnabled');
+
+  if (workEl) workEl.value = cfg.workMinutes;
+  if (shortEl) shortEl.value = cfg.shortBreakMinutes;
+  if (longEl) longEl.value = cfg.longBreakMinutes;
+  if (cyclesEl) cyclesEl.value = cfg.sessionsBeforeLongBreak;
+  if (autoBreaksEl) autoBreaksEl.checked = cfg.autoStartBreaks;
+  if (autoWorkEl) autoWorkEl.checked = cfg.autoStartWork;
+  if (autoLogEl) autoLogEl.checked = cfg.autoLogWork;
+  if (soundEl) soundEl.checked = cfg.soundEnabled;
+
+  document.querySelectorAll('.pomo-preset-chip').forEach(chip => {
+    const preset = timersModule.POMODORO_PRESETS[chip.dataset.pomoPreset];
+    const isMatch = preset &&
+      preset.workMinutes === cfg.workMinutes &&
+      preset.shortBreakMinutes === cfg.shortBreakMinutes &&
+      preset.longBreakMinutes === cfg.longBreakMinutes &&
+      preset.sessionsBeforeLongBreak === cfg.sessionsBeforeLongBreak;
+    chip.classList.toggle('active', Boolean(isMatch));
+  });
+}
+
+function persistPomodoroConfigToSettings() {
+  const cfg = pomodoroState.config;
+  settings.pomoWorkMinutes = cfg.workMinutes;
+  settings.pomoShortBreakMinutes = cfg.shortBreakMinutes;
+  settings.pomoLongBreakMinutes = cfg.longBreakMinutes;
+  settings.pomoSessionsBeforeLongBreak = cfg.sessionsBeforeLongBreak;
+  settings.pomoAutoStartBreaks = cfg.autoStartBreaks;
+  settings.pomoAutoStartWork = cfg.autoStartWork;
+  settings.pomoAutoLogWork = cfg.autoLogWork;
+  settings.pomoSoundEnabled = cfg.soundEnabled;
+
+  if (!store.isEmergencyMode) {
+    store.settings = settings;
+    invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+  }
+}
+
+function togglePomodoroConfigPanel() {
+  const panel = document.getElementById('pomoConfigPanel');
+  const btn = document.getElementById('pomoConfigToggleBtn');
+  if (!panel) return;
+  const isHidden = panel.classList.toggle('hidden');
+  btn?.classList.toggle('active', !isHidden);
+}
+
+function applyPomodoroPreset(presetId) {
+  const preset = timersModule.POMODORO_PRESETS[presetId];
+  if (!preset) return;
+  timersModule.updatePomodoroConfig(pomodoroState, {
+    workMinutes: preset.workMinutes,
+    shortBreakMinutes: preset.shortBreakMinutes,
+    longBreakMinutes: preset.longBreakMinutes,
+    sessionsBeforeLongBreak: preset.sessionsBeforeLongBreak,
+  });
+  syncPomodoroConfigInputsFromState();
+  persistPomodoroConfigToSettings();
+  renderPomodoroUI();
+  showToast(`🍅 Applied ${preset.name} preset`);
+}
+
+function onPomodoroConfigInputChanged() {
+  const newCfg = {
+    workMinutes: parseInt(document.getElementById('pomoWorkMinsInput')?.value, 10) || 25,
+    shortBreakMinutes: parseInt(document.getElementById('pomoShortBreakMinsInput')?.value, 10) || 5,
+    longBreakMinutes: parseInt(document.getElementById('pomoLongBreakMinsInput')?.value, 10) || 15,
+    sessionsBeforeLongBreak: parseInt(document.getElementById('pomoCyclesInput')?.value, 10) || 4,
+    autoStartBreaks: Boolean(document.getElementById('pomoAutoStartBreaks')?.checked),
+    autoStartWork: Boolean(document.getElementById('pomoAutoStartWork')?.checked),
+    autoLogWork: Boolean(document.getElementById('pomoAutoLogWork')?.checked),
+    soundEnabled: Boolean(document.getElementById('pomoSoundEnabled')?.checked),
+  };
+  timersModule.updatePomodoroConfig(pomodoroState, newCfg);
+  syncPomodoroConfigInputsFromState();
+  persistPomodoroConfigToSettings();
+  renderPomodoroUI();
+}
+
+function playPomodoroChime(type = 'workComplete') {
+  if (!pomodoroState.config.soundEnabled) return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const notes = type === 'workComplete'
+      ? [523.25, 659.25, 783.99, 1046.50] // C5 -> E5 -> G5 -> C6
+      : [659.25, 880.00];                  // E5 -> A5
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.13);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.13);
+      gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + i * 0.13 + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.13 + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.13);
+      osc.stop(ctx.currentTime + i * 0.13 + 0.36);
+    });
+    setTimeout(() => {
+      if (ctx.state !== 'closed') ctx.close().catch(() => {});
+    }, 1200);
+  } catch {
+    // Ignore if Web Audio API is unavailable
+  }
+}
+
+function startPomodoroTicker() {
+  if (pomodoroIntervalId) clearInterval(pomodoroIntervalId);
+  pomodoroIntervalId = setInterval(() => tickPomodoro(), 250);
+}
+
+function stopPomodoroTicker() {
+  if (pomodoroIntervalId) {
+    clearInterval(pomodoroIntervalId);
+    pomodoroIntervalId = null;
+  }
+}
+
+function tickPomodoro() {
+  const remaining = timersModule.getPomodoroRemainingSecs(pomodoroState, Date.now());
+  if (remaining <= 0 && pomodoroState.running) {
+    onPomodoroPhaseComplete();
+    return;
+  }
+  renderPomodoroUI(remaining);
+}
+
+function onPomodoroPhaseComplete() {
+  const result = timersModule.advancePomodoroPhase(pomodoroState, true, Date.now());
+  playPomodoroChime(result.finishedPhase === 'work' ? 'workComplete' : 'breakComplete');
+
+  if (result.finishedPhase === 'work') {
+    let loggedHoursMsg = '';
+    if (pomodoroState.config.autoLogWork && result.unloggedWorkSecs > 0 && !store.isEmergencyMode) {
+      const loggedH = logPomodoroSecondsToSheet(result.unloggedWorkSecs, true);
+      if (loggedH > 0) loggedHoursMsg = ` (+${loggedH}h logged to sheet)`;
+    }
+    const nextBreakLabel = result.nextPhase === 'longBreak'
+      ? `${pomodoroState.config.longBreakMinutes}m Long Break`
+      : `${pomodoroState.config.shortBreakMinutes}m Short Break`;
+    showToast(`🍅 Focus session complete${loggedHoursMsg}! Next: ${nextBreakLabel}`, 4500);
+  } else {
+    showToast(`⚡ Break finished! Ready for Focus Session #${pomodoroState.currentSession}.`, 4000);
+  }
+
+  if (pomodoroState.running) {
+    startPomodoroTicker();
+  } else {
+    stopPomodoroTicker();
+  }
+  renderPomodoroUI();
+}
 
 function toggleCleanSlateMode() {
   isCleanSlateMode = !isCleanSlateMode;
@@ -1076,12 +1394,14 @@ function toggleCleanSlateMode() {
     cleanSlateBtn?.classList.add('active');
     
     refreshCleanSlateTaskOptions();
+    renderPomodoroUI();
   } else {
     tableContainer?.classList.remove('hidden');
     tableFooter?.classList.remove('hidden');
     weeklyCompletion?.classList.remove('hidden');
     cleanSlateContainer?.classList.add('hidden');
     cleanSlateBtn?.classList.remove('active');
+    renderPomodoroUI();
   }
 }
 
@@ -1089,33 +1409,37 @@ function refreshCleanSlateTaskOptions() {
   const select = document.getElementById('cleanSlateTaskSelect');
   if (!select) return;
 
+  const previousSelected = cleanSlateActiveTimerId;
   select.innerHTML = '<option value="new">+ Focus on New Unentered Work</option>';
   
   const rows = Array.from(document.querySelectorAll('#timesheetBody tr'));
   let runningTimerId = null;
+  let previousExists = false;
 
   rows.forEach((tr, index) => {
     const timerId = tr.dataset.timerId;
     const taskText = tr.querySelector('.task-input')?.value.trim();
-    if (taskText) {
+    if (taskText || timerId === previousSelected) {
       const opt = document.createElement('option');
       opt.value = timerId;
-      opt.textContent = `${index + 1}. ${taskText}`;
+      opt.textContent = `${index + 1}. ${taskText || 'Untitled Task'}`;
       select.appendChild(opt);
+      if (timerId === previousSelected) previousExists = true;
     }
     if (timerId && timers[timerId]?.running) {
       runningTimerId = timerId;
     }
   });
 
-  if (runningTimerId) {
+  if (previousExists) {
+    select.value = previousSelected;
+    cleanSlateActiveTimerId = previousSelected;
+  } else if (runningTimerId) {
     select.value = runningTimerId;
     cleanSlateActiveTimerId = runningTimerId;
-  } else if (!cleanSlateActiveTimerId || cleanSlateActiveTimerId === 'new') {
+  } else {
     select.value = 'new';
     cleanSlateActiveTimerId = 'new';
-  } else {
-    select.value = cleanSlateActiveTimerId;
   }
 
   onCleanSlateTaskSelectChange();
@@ -1125,20 +1449,14 @@ function onCleanSlateTaskSelectChange() {
   const select = document.getElementById('cleanSlateTaskSelect');
   const customInput = document.getElementById('cleanSlateCustomInput');
   const projectSelect = document.getElementById('cleanSlateProjectSelect');
-  const startBtn = document.getElementById('cleanSlateStartPauseBtn');
-  const timerText = document.getElementById('cleanSlateTimerText');
   const val = select?.value || 'new';
 
   cleanSlateActiveTimerId = val;
 
   if (val === 'new') {
-    if (customInput) {
-      customInput.value = '';
+    if (customInput && !pomodoroState.running) {
       customInput.placeholder = 'What are you focusing on right now?...';
     }
-    if (startBtn) startBtn.textContent = '▶ Start Focus';
-    if (timerText) timerText.textContent = '00:00:00';
-    updateSpatialRingOffset(0);
   } else {
     const tr = document.querySelector(`tr[data-timer-id="${val}"]`);
     if (tr) {
@@ -1151,90 +1469,292 @@ function onCleanSlateTaskSelectChange() {
         if (customInput) customInput.value = rawText;
       }
     }
-    const isRunning = timers[val]?.running;
-    if (startBtn) startBtn.textContent = isRunning ? '⏸ Pause Focus' : '▶ Start Focus';
-    if (val && timers[val]) {
-      updateTimerDisplay(val);
-    } else {
-      if (timerText) timerText.textContent = '00:00:00';
-      updateSpatialRingOffset(0);
-    }
   }
+  renderPomodoroUI();
 }
 
-function cleanSlateToggleTimer() {
-  const select = document.getElementById('cleanSlateTaskSelect');
+function syncCleanSlateTaskEditToRow() {
+  if (cleanSlateActiveTimerId === 'new') return;
+  const tr = document.querySelector(`tr[data-timer-id="${cleanSlateActiveTimerId}"]`);
+  if (!tr) return;
   const customInput = document.getElementById('cleanSlateCustomInput');
   const projectSelect = document.getElementById('cleanSlateProjectSelect');
-  let val = select?.value || 'new';
-
-  if (val === 'new') {
-    const taskDesc = customInput?.value.trim() || 'Focus Session';
-    const proj = projectSelect?.value || 'General';
-    const formattedTask = `[${proj}] ${taskDesc}`;
-
-    // Create a new row in today's sheet
-    const tr = addRow({ task: formattedTask, hours: 0, ot: false });
-    const timerId = tr.dataset.timerId;
-
-    // Start timer on this new row and persist the row immediately
-    toggleTimer(timerId);
-    onDataChange();
+  const taskDesc = customInput?.value.trim() || 'Focus Session';
+  const proj = projectSelect?.value || 'General';
+  const taskInput = tr.querySelector('.task-input');
+  if (taskInput) {
+    taskInput.value = `[${proj}] ${taskDesc}`;
+    onDataChangeDebounced();
     saveCurrentSheet();
-
-    // Refresh options and select the new timerId
-    cleanSlateActiveTimerId = timerId;
-    refreshCleanSlateTaskOptions();
-    showToast(`⚡ Started focus session for: ${taskDesc}`);
-  } else {
-    toggleTimer(val);
-    const isRunning = timers[val]?.running;
-    const startBtn = document.getElementById('cleanSlateStartPauseBtn');
-    if (startBtn) startBtn.textContent = isRunning ? '⏸ Pause Focus' : '▶ Start Focus';
   }
 }
 
-function cleanSlateLogFocus() {
+function ensureActiveFocusTaskRow() {
   const select = document.getElementById('cleanSlateTaskSelect');
   const customInput = document.getElementById('cleanSlateCustomInput');
   const projectSelect = document.getElementById('cleanSlateProjectSelect');
   const val = select?.value || 'new';
 
-  const inc = parseFloat(settings.hourIncrement) || 0.5;
+  if (val !== 'new') {
+    const existingTr = document.querySelector(`tr[data-timer-id="${val}"]`);
+    if (existingTr) return existingTr;
+  }
 
-  if (val === 'new') {
-    const taskDesc = customInput?.value.trim() || 'Focus Session';
-    const proj = projectSelect?.value || 'General';
-    const formattedTask = `[${proj}] ${taskDesc}`;
+  const taskDesc = customInput?.value.trim() || 'Focus Session';
+  const proj = projectSelect?.value || 'General';
+  const formattedTask = `[${proj}] ${taskDesc}`;
 
-    addRow({ task: formattedTask, hours: inc, ot: false });
-    onDataChange();
-    saveCurrentSheet();
-    showToast(`✓ Logged ${inc}h to new focus task`);
-    refreshCleanSlateTaskOptions();
+  // Reuse a single empty row if today's sheet only has the default blank row
+  const allRows = Array.from(document.querySelectorAll('#timesheetBody tr'));
+  let targetTr = null;
+  if (allRows.length === 1) {
+    const firstTr = allRows[0];
+    const firstTask = firstTr.querySelector('.task-input')?.value.trim() || '';
+    const firstHours = parseFloat(firstTr.querySelector('.hours-input')?.value) || 0;
+    if (!firstTask && firstHours === 0) {
+      const input = firstTr.querySelector('.task-input');
+      if (input) input.value = formattedTask;
+      targetTr = firstTr;
+    }
+  }
+  if (!targetTr) {
+    targetTr = addRow({ task: formattedTask, hours: 0, ot: false });
+  }
+
+  const timerId = targetTr.dataset.timerId;
+  cleanSlateActiveTimerId = timerId;
+  onDataChange();
+  saveCurrentSheet();
+  refreshCleanSlateTaskOptions();
+  return targetTr;
+}
+
+function cleanSlateToggleTimer() {
+  if (store.isEmergencyMode) return;
+
+  const wasRunning = pomodoroState.running;
+  if (!wasRunning && pomodoroState.phase === 'work') {
+    const select = document.getElementById('cleanSlateTaskSelect');
+    if ((select?.value || 'new') === 'new') {
+      ensureActiveFocusTaskRow();
+    }
+  }
+
+  timersModule.startPausePomodoro(pomodoroState, Date.now());
+  if (pomodoroState.running) {
+    startPomodoroTicker();
+    const phaseLabel = timersModule.POMODORO_PHASES[pomodoroState.phase]?.label || 'Focus';
+    showToast(`▶ ${phaseLabel} timer running`);
   } else {
-    stepHours(val, 1);
-    saveCurrentSheet();
-    showToast(`✓ Logged ${inc}h to task`);
+    stopPomodoroTicker();
+    showToast(`⏸ Timer paused`);
+  }
+  renderPomodoroUI();
+}
+
+function onPomodoroReset() {
+  timersModule.resetPomodoroPhase(pomodoroState);
+  stopPomodoroTicker();
+  renderPomodoroUI();
+  showToast('↺ Pomodoro phase reset');
+}
+
+function onPomodoroSkip() {
+  const result = timersModule.advancePomodoroPhase(pomodoroState, false, Date.now());
+  stopPomodoroTicker();
+  renderPomodoroUI();
+  const nextLabel = timersModule.POMODORO_PHASES[result.nextPhase]?.label || 'Next Phase';
+  showToast(`⏭ Skipped to ${nextLabel}`);
+}
+
+function onPomodoroPhaseTabClick(targetPhase) {
+  if (!targetPhase || targetPhase === pomodoroState.phase) return;
+  timersModule.switchPomodoroPhase(pomodoroState, targetPhase);
+  stopPomodoroTicker();
+  renderPomodoroUI();
+}
+
+function logPomodoroSecondsToSheet(focusSecs, isAuto = false) {
+  if (store.isEmergencyMode) return 0;
+  const secs = Math.max(0, Number(focusSecs) || 0);
+  if (secs <= 0) return 0;
+
+  const tr = ensureActiveFocusTaskRow();
+  if (!tr) return 0;
+
+  const roundedHours = timersModule.calculateRoundedHours(secs * 1000, settings.hourIncrement);
+  const input = tr.querySelector('.hours-input');
+  if (input) {
+    const existing = parseFloat(input.value) || 0;
+    const clamped = Math.min(24, Math.max(0, Math.round((existing + roundedHours) * 100) / 100));
+    input.value = parseFloat(clamped.toFixed(2));
+  }
+  onDataChange();
+  saveCurrentSheet();
+  if (!isAuto) {
+    const mins = Math.max(1, Math.round(secs / 60));
+    showToast(`✓ Logged ${roundedHours}h (${mins}m focus) to sheet`);
+  }
+  return roundedHours;
+}
+
+function cleanSlateLogFocus() {
+  if (store.isEmergencyMode) return;
+  const now = Date.now();
+  const unloggedSecs = timersModule.getPomodoroUnloggedWorkSecs(pomodoroState, now);
+
+  if (pomodoroState.phase === 'work' && unloggedSecs > 0) {
+    pomodoroState.loggedWorkSecsInPhase = (pomodoroState.loggedWorkSecsInPhase || 0) + unloggedSecs;
+    pomodoroState.totalFocusSecsToday = (pomodoroState.totalFocusSecsToday || 0) + unloggedSecs;
+    logPomodoroSecondsToSheet(unloggedSecs, false);
+    renderPomodoroUI();
+  } else {
+    // Log one full configured Focus block if clicked before starting or during break
+    const blockSecs = pomodoroState.config.workMinutes * 60;
+    pomodoroState.totalFocusSecsToday = (pomodoroState.totalFocusSecsToday || 0) + blockSecs;
+    logPomodoroSecondsToSheet(blockSecs, false);
+    renderPomodoroUI();
   }
 }
 
-function updateCleanSlateView(timerId, secs, timeStr) {
-  if (!isCleanSlateMode) return;
-  const select = document.getElementById('cleanSlateTaskSelect');
-  if (select?.value !== timerId) return;
+function renderPomodoroUI(overrideRemainingSecs = null) {
+  const remaining = overrideRemainingSecs !== null
+    ? overrideRemainingSecs
+    : timersModule.getPomodoroRemainingSecs(pomodoroState, Date.now());
+  const timeStr = timersModule.formatPomodoroTime(remaining);
+  const cfg = pomodoroState.config;
+  const phaseInfo = timersModule.POMODORO_PHASES[pomodoroState.phase] || timersModule.POMODORO_PHASES.work;
 
-  const cleanSlateTimerText = document.getElementById('cleanSlateTimerText');
-  if (cleanSlateTimerText) cleanSlateTimerText.textContent = timeStr;
-  updateSpatialRingOffset(secs);
+  // Card phase attribute for M3 phase-specific accent styling
+  const pomoCard = document.getElementById('pomoCard');
+  if (pomoCard) {
+    pomoCard.setAttribute('data-pomo-phase', pomodoroState.phase);
+    pomoCard.classList.toggle('is-running', pomodoroState.running);
+  }
+
+  // Header tag & cycle badge
+  const phaseTag = document.getElementById('cleanSlatePhaseTag');
+  if (phaseTag) phaseTag.textContent = phaseInfo.badge;
+
+  const cycleBadge = document.getElementById('pomoCycleBadge');
+  if (cycleBadge) {
+    cycleBadge.textContent = `Session ${pomodoroState.currentSession} of ${cfg.sessionsBeforeLongBreak}`;
+  }
+
+  // Phase tabs
+  const tabWorkMins = document.getElementById('pomoTabWorkMins');
+  const tabShortMins = document.getElementById('pomoTabShortMins');
+  const tabLongMins = document.getElementById('pomoTabLongMins');
+  if (tabWorkMins) tabWorkMins.textContent = `${cfg.workMinutes}m`;
+  if (tabShortMins) tabShortMins.textContent = `${cfg.shortBreakMinutes}m`;
+  if (tabLongMins) tabLongMins.textContent = `${cfg.longBreakMinutes}m`;
+
+  document.querySelectorAll('.pomo-phase-tab').forEach(tab => {
+    const isActive = tab.dataset.pomoPhase === pomodoroState.phase;
+    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  // Ring countdown text & sublabel
+  const timerText = document.getElementById('cleanSlateTimerText');
+  if (timerText) timerText.textContent = timeStr;
+
+  const sublabel = document.getElementById('pomoPhaseSublabel');
+  if (sublabel) {
+    if (pomodoroState.running) {
+      sublabel.textContent = pomodoroState.phase === 'work'
+        ? `FOCUSING • #${pomodoroState.currentSession}`
+        : phaseInfo.label.toUpperCase();
+    } else if (remaining < pomodoroState.durationSecs && remaining > 0) {
+      sublabel.textContent = 'PAUSED';
+    } else {
+      sublabel.textContent = pomodoroState.phase === 'work'
+        ? 'READY TO FOCUS'
+        : `READY • ${phaseInfo.label.toUpperCase()}`;
+    }
+  }
+
+  // Expressive SVG Progress Ring
+  updateSpatialRingOffset(remaining, pomodoroState.durationSecs);
+
+  // Start / Pause button label
+  const startBtn = document.getElementById('cleanSlateStartPauseBtn');
+  if (startBtn) {
+    if (pomodoroState.running) {
+      startBtn.textContent = `⏸ Pause ${phaseInfo.label}`;
+    } else if (remaining < pomodoroState.durationSecs && remaining > 0) {
+      startBtn.textContent = `▶ Resume ${phaseInfo.label}`;
+    } else {
+      startBtn.textContent = `▶ Start ${phaseInfo.label}`;
+    }
+  }
+
+  // Session dots
+  const dotsContainer = document.getElementById('pomoSessionDots');
+  if (dotsContainer) {
+    dotsContainer.innerHTML = '';
+    for (let i = 1; i <= cfg.sessionsBeforeLongBreak; i++) {
+      const dot = document.createElement('span');
+      const isCompletedInCycle = i < pomodoroState.currentSession ||
+        (i === pomodoroState.currentSession && pomodoroState.phase !== 'work');
+      const isCurrent = i === pomodoroState.currentSession && pomodoroState.phase === 'work';
+      dot.className = `pomo-session-dot${isCompletedInCycle ? ' completed' : ''}${isCurrent ? ' current' : ''}`;
+      dot.title = `Session ${i} of ${cfg.sessionsBeforeLongBreak}`;
+      dotsContainer.appendChild(dot);
+    }
+  }
+
+  // Footer statistics
+  const completedEl = document.getElementById('pomoCompletedCount');
+  if (completedEl) completedEl.textContent = String(pomodoroState.completedSessions || 0);
+
+  const totalFocusEl = document.getElementById('pomoTotalFocusTime');
+  if (totalFocusEl) {
+    const unlogged = timersModule.getPomodoroUnloggedWorkSecs(pomodoroState, Date.now());
+    const totalMins = Math.floor(((pomodoroState.totalFocusSecsToday || 0) + unlogged) / 60);
+    if (totalMins >= 60) {
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      totalFocusEl.textContent = m > 0 ? `${h}h ${m}m` : `${h}h`;
+    } else {
+      totalFocusEl.textContent = `${totalMins}m`;
+    }
+  }
+
+  const nextPhaseEl = document.getElementById('pomoNextPhaseLabel');
+  if (nextPhaseEl) {
+    if (pomodoroState.phase === 'work') {
+      const isLongNext = pomodoroState.currentSession >= cfg.sessionsBeforeLongBreak;
+      nextPhaseEl.textContent = isLongNext
+        ? `Next: ${cfg.longBreakMinutes}m Long Break`
+        : `Next: ${cfg.shortBreakMinutes}m Short Break`;
+    } else {
+      nextPhaseEl.textContent = `Next: ${cfg.workMinutes}m Focus`;
+    }
+  }
+
+  // Update sidebar Pomodoro button with live countdown when running or paused mid-phase
+  const cleanSlateBtn = document.getElementById('cleanSlateBtn');
+  if (cleanSlateBtn) {
+    const icon = pomodoroState.phase === 'work' ? '🍅' : (pomodoroState.phase === 'shortBreak' ? '☕' : '🌿');
+    if (pomodoroState.running || remaining < pomodoroState.durationSecs) {
+      cleanSlateBtn.innerHTML = `<span>${icon} ${timeStr}</span>`;
+    } else {
+      cleanSlateBtn.innerHTML = `<span>🍅 Pomodoro</span>`;
+    }
+  }
 }
 
-function updateSpatialRingOffset(secs) {
+function updateCleanSlateView(_timerId, _secs, _timeStr) {
+  if (isCleanSlateMode) {
+    renderPomodoroUI();
+  }
+}
+
+function updateSpatialRingOffset(remainingSecs, durationSecs = pomodoroState.durationSecs) {
   const spatialRingProgress = document.getElementById('spatialRingProgress');
   if (spatialRingProgress) {
-    const period = 1800; // 30 minute cycle ring
-    const progress = (secs % period) / period;
-    const offset = 326.72 * (1 - progress);
+    const offset = timersModule.calculatePomodoroRingOffset(remainingSecs, durationSecs, 326.72);
     spatialRingProgress.style.strokeDashoffset = offset;
   }
 }
@@ -1740,7 +2260,7 @@ function setupKeyboardShortcuts() {
   });
 }
 
-// ---- Toast ----
+// ---- Toast (M3 Snackbar) ----
 function showToast(msg, duration = 2500) {
   let toast = document.getElementById('toast');
   if (!toast) {
@@ -1749,19 +2269,35 @@ function showToast(msg, duration = 2500) {
     toast.setAttribute('role', 'status');
     toast.setAttribute('aria-live', 'polite');
     toast.style.cssText = `
-      position:fixed;bottom:20px;right:20px;z-index:9999;
-      background:var(--bg-3);border:1px solid var(--border);
-      border-radius:8px;padding:10px 16px;
-      font-family:var(--font-mono);font-size:12px;color:var(--text);
-      box-shadow:0 4px 20px rgba(0,0,0,0.4);
-      transition:opacity 0.3s;opacity:0;
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      background: var(--md-sys-color-inverse-surface, var(--bg-3));
+      color: var(--md-sys-color-inverse-on-surface, var(--text));
+      border: 1px solid var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.12));
+      border-radius: 12px;
+      padding: 12px 18px;
+      font-family: var(--font-sans, system-ui, sans-serif);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.015em;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.32);
+      transition: opacity 0.25s cubic-bezier(0.05, 0.7, 0.1, 1.0), transform 0.25s cubic-bezier(0.05, 0.7, 0.1, 1.0);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
     `;
     document.body.appendChild(toast);
   }
   toast.textContent = msg;
   toast.style.opacity = '1';
+  toast.style.transform = 'translateY(0)';
   clearTimeout(toast._timeout);
-  toast._timeout = setTimeout(() => { toast.style.opacity = '0'; }, duration);
+  toast._timeout = setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(8px)';
+  }, duration);
 }
 
 // ---- Start ----

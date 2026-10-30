@@ -109,17 +109,85 @@
           </div>
         </div>
 
-        <!-- Clean Slate Isolation View Container -->
+        <!-- Clean Slate Isolation View Container (Full Pomodoro Timer) -->
         <div id="cleanSlateContainer" class="clean-slate-container hidden">
-          <div class="clean-slate-card">
+          <div class="clean-slate-card" id="pomoCard" data-pomo-phase="work">
             <div class="clean-slate-header">
-              <span class="clean-slate-tag">POMODORO FOCUS MODE</span>
-              <button class="btn-secondary" id="exitCleanSlateBtn" style="padding: 4px 10px; font-size: 12px;">Exit Pomodoro ✕</button>
+              <div class="pomo-header-left">
+                <span class="clean-slate-tag" id="cleanSlatePhaseTag">🍅 POMODORO FOCUS</span>
+                <span class="pomo-cycle-badge" id="pomoCycleBadge">Session 1 of 4</span>
+              </div>
+              <div class="pomo-header-actions">
+                <button class="btn-secondary pomo-header-btn" id="pomoConfigToggleBtn" title="Configure Pomodoro Durations & Automation">⚙ Setup</button>
+                <button class="btn-secondary pomo-header-btn" id="exitCleanSlateBtn">Exit ✕</button>
+              </div>
+            </div>
+
+            <!-- M3 Phase Segmented Switcher -->
+            <div class="pomo-phase-tabs" role="tablist" aria-label="Pomodoro Timer Phase">
+              <button class="pomo-phase-tab active" id="pomoPhaseWorkBtn" data-pomo-phase="work" role="tab" aria-selected="true">
+                <span>🍅 Focus</span>
+                <span class="pomo-tab-mins" id="pomoTabWorkMins">25m</span>
+              </button>
+              <button class="pomo-phase-tab" id="pomoPhaseShortBreakBtn" data-pomo-phase="shortBreak" role="tab" aria-selected="false">
+                <span>☕ Short Break</span>
+                <span class="pomo-tab-mins" id="pomoTabShortMins">5m</span>
+              </button>
+              <button class="pomo-phase-tab" id="pomoPhaseLongBreakBtn" data-pomo-phase="longBreak" role="tab" aria-selected="false">
+                <span>🌿 Long Break</span>
+                <span class="pomo-tab-mins" id="pomoTabLongMins">15m</span>
+              </button>
+            </div>
+
+            <!-- Collapsible Pomodoro Configuration Drawer -->
+            <div class="pomo-config-panel hidden" id="pomoConfigPanel">
+              <div class="pomo-preset-row">
+                <span class="pomo-config-label">Presets:</span>
+                <button type="button" class="pomo-preset-chip" data-pomo-preset="classic">Classic 25/5/15</button>
+                <button type="button" class="pomo-preset-chip" data-pomo-preset="deep">Deep Work 50/10/25</button>
+                <button type="button" class="pomo-preset-chip" data-pomo-preset="sprint">ADHD Sprint 15/3/10</button>
+              </div>
+              <div class="pomo-config-grid">
+                <label class="pomo-config-field">
+                  <span>Focus (min)</span>
+                  <input type="number" id="pomoWorkMinsInput" class="setting-input pomo-num-input" min="1" max="180" value="25" />
+                </label>
+                <label class="pomo-config-field">
+                  <span>Short Break</span>
+                  <input type="number" id="pomoShortBreakMinsInput" class="setting-input pomo-num-input" min="1" max="60" value="5" />
+                </label>
+                <label class="pomo-config-field">
+                  <span>Long Break</span>
+                  <input type="number" id="pomoLongBreakMinsInput" class="setting-input pomo-num-input" min="1" max="90" value="15" />
+                </label>
+                <label class="pomo-config-field">
+                  <span>Long Break Every</span>
+                  <input type="number" id="pomoCyclesInput" class="setting-input pomo-num-input" min="1" max="12" value="4" />
+                </label>
+              </div>
+              <div class="pomo-config-toggles">
+                <label class="pomo-toggle-chip">
+                  <input type="checkbox" id="pomoAutoStartBreaks" />
+                  <span>Auto-start Breaks</span>
+                </label>
+                <label class="pomo-toggle-chip">
+                  <input type="checkbox" id="pomoAutoStartWork" />
+                  <span>Auto-start Focus</span>
+                </label>
+                <label class="pomo-toggle-chip">
+                  <input type="checkbox" id="pomoAutoLogWork" checked />
+                  <span>Auto-log to Sheet</span>
+                </label>
+                <label class="pomo-toggle-chip">
+                  <input type="checkbox" id="pomoSoundEnabled" checked />
+                  <span>🔔 Sound Chime</span>
+                </label>
+              </div>
             </div>
 
             <div class="clean-slate-body">
               <!-- Task Selection & Custom Input -->
-              <div class="clean-slate-selector-wrap" style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+              <div class="clean-slate-selector-wrap">
                 <div style="display: flex; gap: 8px; align-items: center;">
                   <select id="cleanSlateTaskSelect" class="setting-select" style="flex: 1; padding: 6px 10px; font-size: 12px;">
                     <option value="new">+ Focus on New Unentered Work</option>
@@ -135,23 +203,38 @@
                 <input type="text" id="cleanSlateCustomInput" class="clean-slate-input" placeholder="What are you focusing on right now?..." />
               </div>
 
-              <!-- Spatial ring timer -->
-              <div class="spatial-ring-wrap" id="cleanSlateRingWrap" title="Click to Start/Pause Focus Timer" style="cursor: pointer; margin: 12px 0;">
+              <!-- Spatial countdown ring timer -->
+              <div class="spatial-ring-wrap" id="cleanSlateRingWrap" title="Click to Start/Pause Pomodoro Timer">
                 <svg class="spatial-ring" viewBox="0 0 120 120">
                   <circle class="ring-bg" cx="60" cy="60" r="52" />
-                  <circle class="ring-progress" id="spatialRingProgress" cx="60" cy="60" r="52" />
+                  <circle class="ring-progress" id="spatialRingProgress" cx="60" cy="60" r="52" style="stroke-dashoffset: 326.72;" />
                 </svg>
-                <div class="ring-timer-text" id="cleanSlateTimerText">00:00:00</div>
+                <div class="ring-center-content">
+                  <div class="ring-timer-text" id="cleanSlateTimerText">25:00</div>
+                  <div class="ring-phase-sublabel" id="pomoPhaseSublabel">READY TO FOCUS</div>
+                </div>
               </div>
 
-              <div class="clean-slate-action-row" style="display: flex; gap: 12px;">
-                <button class="btn-primary" id="cleanSlateStartPauseBtn">▶ Start Focus</button>
-                <button class="btn-secondary" id="cleanSlateLogBtn">✓ Log to Sheet</button>
+              <!-- Visual Cycle Dots -->
+              <div class="pomo-session-dots" id="pomoSessionDots" aria-label="Pomodoro cycle progress"></div>
+
+              <!-- Full Transport & Sheet Logging Controls -->
+              <div class="clean-slate-action-row">
+                <button class="btn-secondary pomo-ctrl-btn" id="pomoResetBtn" title="Reset Current Phase (R)">↺ Reset</button>
+                <button class="btn-primary pomo-main-btn" id="cleanSlateStartPauseBtn">▶ Start Focus</button>
+                <button class="btn-secondary pomo-ctrl-btn" id="pomoSkipBtn" title="Skip to Next Phase (S)">⏭ Skip</button>
+                <button class="btn-secondary pomo-ctrl-btn" id="cleanSlateLogBtn" title="Log Focus Time to Sheet">✓ Log to Sheet</button>
               </div>
             </div>
 
             <div class="clean-slate-footer">
-              <span style="font-size: 12px; color: var(--text-3);">Single-Task Isolation Layer • Zero Distraction</span>
+              <div class="pomo-stats-bar">
+                <span class="pomo-stat-item">Completed today: <strong id="pomoCompletedCount">0</strong> 🍅</span>
+                <span class="pomo-stat-sep">•</span>
+                <span class="pomo-stat-item">Focused: <strong id="pomoTotalFocusTime">0m</strong></span>
+                <span class="pomo-stat-sep">•</span>
+                <span class="pomo-stat-item" id="pomoNextPhaseLabel">Next: 5m Short Break</span>
+              </div>
             </div>
           </div>
         </div>
@@ -262,6 +345,32 @@
               <label class="setting-label">Theme</label>
               <div class="theme-grid" id="themeGrid">
                 <!-- themes rendered by JS -->
+              </div>
+            </div>
+            <div class="setting-row" style="margin-top: 16px;">
+              <div>
+                <label class="setting-label" for="settingSchemeMode">Color Scheme Mode</label>
+                <p class="settings-help">Tonal mode variant for Material Design 3 palettes.</p>
+              </div>
+              <select class="setting-select" id="settingSchemeMode">
+                <option value="auto">Auto (Theme Default)</option>
+                <option value="dark">Dark Tonal Scheme</option>
+                <option value="light">Light Tonal Scheme</option>
+              </select>
+            </div>
+            <div class="setting-row" style="margin-top: 16px;">
+              <div>
+                <label class="setting-label" for="settingCustomSeedColor">Custom M3 Seed Color</label>
+                <p class="settings-help">Generate an HCT tonal scheme from a custom Material You key color.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="color" id="settingCustomSeedColor" value="#6750a4" class="setting-color-picker" title="Material You Seed Color" style="width: 38px; height: 32px; border: none; border-radius: 8px; cursor: pointer; background: transparent;" />
+                <label class="toggle-switch" title="Enable custom seed color">
+                  <input type="checkbox" id="settingCustomSeedToggle" />
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </label>
               </div>
             </div>
             <div class="setting-row" style="margin-top: 16px;">

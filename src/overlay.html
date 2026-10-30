@@ -30,6 +30,7 @@
     body[data-position="center-left"]  { justify-content: flex-start; align-items: center; }
     body[data-position="bottom-left"]  { justify-content: flex-start; align-items: flex-end; }
 
+    /* M3 Large squircle geometry (18px) and M3 Emphasized easing */
     #btn {
       width: 64px;
       height: 64px;
@@ -44,11 +45,11 @@
       box-shadow: none !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
-      border-radius: 14px;
-      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                  height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                  transform 0.15s ease,
-                  opacity 0.15s ease;
+      border-radius: 18px;
+      transition: width 0.35s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  height 0.35s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  transform 0.2s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  opacity 0.2s cubic-bezier(0.05, 0.7, 0.1, 1.0);
       opacity: 0.95;
     }
     #btn:hover  { transform: scale(1.08); opacity: 1; }
@@ -57,10 +58,11 @@
       width: 52px;
       height: 52px;
       object-fit: contain;
-      border-radius: 10px;
+      border-radius: 14px;
       pointer-events: none;
-      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                  height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: width 0.35s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  height 0.35s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  border-radius 0.35s cubic-bezier(0.05, 0.7, 0.1, 1.0);
     }
 
     /* Compact mode: smaller icon docked in configured corner/side */
@@ -71,6 +73,7 @@
     body.compact img {
       width: 30px;
       height: 30px;
+      border-radius: 10px;
     }
 
     /* Expanding back to original full size when hovered */
@@ -83,6 +86,7 @@
     body.compact #btn:hover img {
       width: 52px !important;
       height: 52px !important;
+      border-radius: 14px !important;
     }
   </style>
 </head>

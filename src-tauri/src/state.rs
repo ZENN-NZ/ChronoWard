@@ -63,10 +63,40 @@ pub struct Settings {
 
     #[serde(default)]
     pub theme_base_offset: usize,
+    #[serde(default = "default_scheme_mode")]
+    pub scheme_mode: String,
+    #[serde(default)]
+    pub custom_seed_enabled: bool,
+    #[serde(default = "default_custom_seed_color")]
+    pub custom_seed_color: String,
+    #[serde(default = "default_pomo_work_minutes")]
+    pub pomo_work_minutes: u32,
+    #[serde(default = "default_pomo_short_break_minutes")]
+    pub pomo_short_break_minutes: u32,
+    #[serde(default = "default_pomo_long_break_minutes")]
+    pub pomo_long_break_minutes: u32,
+    #[serde(default = "default_pomo_sessions_before_long_break")]
+    pub pomo_sessions_before_long_break: u32,
+    #[serde(default)]
+    pub pomo_auto_start_breaks: bool,
+    #[serde(default)]
+    pub pomo_auto_start_work: bool,
+    #[serde(default = "default_pomo_auto_log_work")]
+    pub pomo_auto_log_work: bool,
+    #[serde(default = "default_pomo_sound_enabled")]
+    pub pomo_sound_enabled: bool,
 }
 
 fn default_auto_rotate_theme() -> bool {
     true
+}
+
+fn default_scheme_mode() -> String {
+    "auto".to_string()
+}
+
+fn default_custom_seed_color() -> String {
+    "#6750a4".to_string()
 }
 
 fn default_overlay_position() -> String {
@@ -96,6 +126,24 @@ fn default_warning_time() -> String {
 fn default_min_hours_warning() -> f64 {
     7.5
 }
+fn default_pomo_work_minutes() -> u32 {
+    25
+}
+fn default_pomo_short_break_minutes() -> u32 {
+    5
+}
+fn default_pomo_long_break_minutes() -> u32 {
+    15
+}
+fn default_pomo_sessions_before_long_break() -> u32 {
+    4
+}
+fn default_pomo_auto_log_work() -> bool {
+    true
+}
+fn default_pomo_sound_enabled() -> bool {
+    true
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -112,6 +160,17 @@ impl Default for Settings {
             auto_rotate_theme: default_auto_rotate_theme(),
             installed_at: None,
             theme_base_offset: 0,
+            scheme_mode: default_scheme_mode(),
+            custom_seed_enabled: false,
+            custom_seed_color: default_custom_seed_color(),
+            pomo_work_minutes: default_pomo_work_minutes(),
+            pomo_short_break_minutes: default_pomo_short_break_minutes(),
+            pomo_long_break_minutes: default_pomo_long_break_minutes(),
+            pomo_sessions_before_long_break: default_pomo_sessions_before_long_break(),
+            pomo_auto_start_breaks: false,
+            pomo_auto_start_work: false,
+            pomo_auto_log_work: default_pomo_auto_log_work(),
+            pomo_sound_enabled: default_pomo_sound_enabled(),
         }
     }
 }

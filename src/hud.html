@@ -6,6 +6,30 @@
   <title>ChronoWard Quick Capture HUD</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
+    :root {
+      --md-sys-color-surface: #13141c;
+      --md-sys-color-surface-container: #1a1b26;
+      --md-sys-color-surface-container-high: #212230;
+      --md-sys-color-surface-container-highest: #2b2d3e;
+      --md-sys-color-on-surface: #e2e4f0;
+      --md-sys-color-on-surface-variant: #8b8fa8;
+      --md-sys-color-outline: #555870;
+      --md-sys-color-outline-variant: #3a3b50;
+      --md-sys-color-primary: #7c6df8;
+      --md-sys-color-on-primary: #ffffff;
+      --md-sys-color-primary-container: #332d66;
+      --md-sys-color-on-primary-container: #dcd7ff;
+      --md-sys-color-secondary-container: #2e2850;
+      --md-sys-color-on-secondary-container: #e6e0ff;
+      --md-sys-color-tertiary-container: #1b4240;
+      --md-sys-color-on-tertiary-container: #b3fff4;
+      --md-sys-color-error: #f86d6d;
+      --md-sys-color-error-container: #4c1818;
+      --md-sys-color-on-error-container: #ffdad6;
+      --font-mono: 'DM Mono', monospace, system-ui;
+      --font-sans: 'Syne', system-ui, sans-serif;
+    }
+
     html, body {
       margin: 0;
       padding: 0;
@@ -13,25 +37,28 @@
       height: 100vh;
       background: transparent !important;
       overflow: hidden;
-      font-family: 'DM Mono', monospace, system-ui;
+      font-family: var(--font-sans);
       user-select: none;
       -webkit-user-select: none;
     }
 
+    /* M3 Extra-Large Dialog (border-radius: 28px) */
     .hud-card {
       width: calc(100vw - 20px);
       height: calc(100vh - 20px);
       margin: 10px auto;
-      background: rgba(15, 23, 42, 0.92);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(148, 163, 184, 0.25);
-      border-radius: 16px;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.15);
+      background: var(--md-sys-color-surface-container-high, rgba(33, 34, 48, 0.94));
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.12));
+      border-radius: 28px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55),
+                  0 0 0 1px var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.08)),
+                  0 4px 18px var(--md-sys-color-primary-container, rgba(124, 109, 248, 0.16));
       display: flex;
       flex-direction: column;
-      padding: 16px 20px;
-      color: #f8fafc;
+      padding: 18px 22px;
+      color: var(--md-sys-color-on-surface, #e2e4f0);
       box-sizing: border-box;
       gap: 12px;
     }
@@ -40,106 +67,181 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #94a3b8;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 8px;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.08));
+      padding-bottom: 10px;
     }
 
+    /* M3 Primary Container / Tertiary Container pill badge */
     .hud-title-badge {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 6px;
-      color: #818cf8;
+      gap: 8px;
+      background: var(--md-sys-color-primary-container, rgba(124, 109, 248, 0.22));
+      color: var(--md-sys-color-on-primary-container, #dcd7ff);
+      border: 1px solid var(--md-sys-color-outline-variant, rgba(124, 109, 248, 0.35));
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 0.78rem;
       font-weight: 600;
+      letter-spacing: 0.02em;
     }
 
+    /* M3 surface-container-highest pill tags */
     .hud-shortcut-hint {
-      background: rgba(255, 255, 255, 0.08);
-      padding: 2px 8px;
-      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--md-sys-color-surface-container-highest, rgba(255, 255, 255, 0.08));
+      color: var(--md-sys-color-on-surface-variant, #8b8fa8);
+      border: 1px solid var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.06));
+      padding: 4px 12px;
+      border-radius: 9999px;
       font-size: 0.7rem;
-      color: #cbd5e1;
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
     }
 
     .hud-body {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       flex: 1;
     }
 
     .hud-input-row {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       align-items: center;
     }
 
+    /* M3 Filled/Outlined Inputs (border-radius: 12px) */
     .hud-input {
       flex: 1;
-      background: rgba(30, 41, 59, 0.8);
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      border-radius: 8px;
+      background: var(--md-sys-color-surface-container-highest, rgba(43, 45, 62, 0.8));
+      border: 1px solid var(--md-sys-color-outline-variant, rgba(139, 143, 168, 0.3));
+      border-radius: 12px;
       padding: 10px 14px;
-      color: #f8fafc;
+      color: var(--md-sys-color-on-surface, #e2e4f0);
       font-family: inherit;
       font-size: 0.95rem;
       outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
+      transition: border-color 0.18s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  box-shadow 0.18s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  background-color 0.18s ease;
+    }
+
+    .hud-input::placeholder {
+      color: var(--md-sys-color-on-surface-variant, #8b8fa8);
+      opacity: 0.8;
+    }
+
+    .hud-input:hover {
+      border-color: var(--md-sys-color-outline, #555870);
     }
 
     .hud-input:focus {
-      border-color: #818cf8;
-      box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.25);
+      border-color: var(--md-sys-color-primary, #7c6df8);
+      box-shadow: 0 0 0 2px var(--md-sys-color-primary, #7c6df8);
     }
 
+    /* M3 Error Container State */
     .hud-input.ticket-invalid {
-      border-color: #ef4444 !important;
-      color: #f87171 !important;
-      background: rgba(239, 68, 68, 0.15) !important;
+      border-color: var(--md-sys-color-error, #f86d6d) !important;
+      color: var(--md-sys-color-on-error-container, #ffdad6) !important;
+      background: var(--md-sys-color-error-container, rgba(76, 24, 24, 0.6)) !important;
+      box-shadow: 0 0 0 2px var(--md-sys-color-error, #f86d6d) !important;
     }
 
     .hud-select {
       width: 150px;
-      background: rgba(30, 41, 59, 0.8);
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      border-radius: 8px;
-      padding: 10px;
-      color: #f8fafc;
+      background: var(--md-sys-color-surface-container-highest, rgba(43, 45, 62, 0.8));
+      border: 1px solid var(--md-sys-color-outline-variant, rgba(139, 143, 168, 0.3));
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: var(--md-sys-color-on-surface, #e2e4f0);
       font-family: inherit;
-      font-size: 0.85rem;
+      font-size: 0.88rem;
       outline: none;
       cursor: pointer;
+      transition: border-color 0.18s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  box-shadow 0.18s cubic-bezier(0.05, 0.7, 0.1, 1.0);
+    }
+
+    .hud-select:hover {
+      border-color: var(--md-sys-color-outline, #555870);
+    }
+
+    .hud-select:focus {
+      border-color: var(--md-sys-color-primary, #7c6df8);
+      box-shadow: 0 0 0 2px var(--md-sys-color-primary, #7c6df8);
     }
 
     .hud-hours-input {
       width: 80px;
       text-align: center;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    .hud-unit-label {
+      font-size: 0.85rem;
+      color: var(--md-sys-color-on-surface-variant, #8b8fa8);
+      font-weight: 500;
     }
 
     .hud-footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 0.75rem;
-      color: #64748b;
+      font-size: 0.76rem;
+      color: var(--md-sys-color-on-surface-variant, #8b8fa8);
       margin-top: 4px;
+      padding-top: 8px;
+      border-top: 1px solid var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.06));
     }
 
+    /* M3 FilledButton pill (border-radius: 9999px) with State Layer */
     .hud-btn-primary {
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-      color: white;
+      position: relative;
+      overflow: hidden;
+      background: var(--md-sys-color-primary, #7c6df8);
+      color: var(--md-sys-color-on-primary, #ffffff);
       border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
+      padding: 10px 22px;
+      border-radius: 9999px;
       font-family: inherit;
       font-weight: 600;
       font-size: 0.85rem;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-      transition: transform 0.1s, opacity 0.15s;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+      transition: transform 0.15s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  box-shadow 0.15s cubic-bezier(0.05, 0.7, 0.1, 1.0),
+                  background-color 0.15s ease;
+    }
+
+    /* M3 State Layer: 8% hover, 12% focus/press */
+    .hud-btn-primary::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 9999px;
+      background: currentColor;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      pointer-events: none;
+    }
+
+    .hud-btn-primary:hover {
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.36);
+    }
+
+    .hud-btn-primary:hover::after {
+      opacity: 0.08;
+    }
+
+    .hud-btn-primary:focus-visible::after,
+    .hud-btn-primary:active::after {
+      opacity: 0.12;
     }
 
     .hud-btn-primary:active {
@@ -174,7 +276,7 @@
         <input type="text" id="ticketInput" class="hud-input" placeholder="Ticket # (opt)" style="width: 160px; text-transform: uppercase;" maxlength="25" />
 
         <input type="number" id="hoursInput" class="hud-input hud-hours-input" value="0" step="0.5" min="0" max="24" title="Hours" />
-        <span style="font-size:0.85rem; color:#94a3b8;">hours</span>
+        <span class="hud-unit-label">hours</span>
 
         <div style="flex:1;"></div>
 
@@ -184,10 +286,10 @@
 
     <div class="hud-footer">
       <span>Zero-Friction Executive Capture</span>
-      <span id="statusMessage" style="color:#38bdf8;">Ready</span>
+      <span id="statusMessage" style="color: var(--md-sys-color-primary, #7c6df8);">Ready</span>
     </div>
   </div>
 
-  <script src="hud.js"></script>
+  <script type="module" src="hud.js"></script>
 </body>
 </html>

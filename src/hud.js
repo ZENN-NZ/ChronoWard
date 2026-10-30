@@ -1,5 +1,8 @@
-const { invoke } = window.__TAURI__.core;
-const { listen, emit } = window.__TAURI__.event;
+import { M3_THEMES, applyM3ThemeToDocument } from './m3-color.js';
+
+const invoke = (cmd, args) => window.__TAURI__?.core?.invoke(cmd, args) ?? Promise.reject(new Error('Tauri core unavailable'));
+const listen = (event, handler) => window.__TAURI__?.event?.listen(event, handler) ?? Promise.resolve(() => {});
+const emit = (event, payload) => window.__TAURI__?.event?.emit(event, payload) ?? Promise.resolve();
 
 const taskInput = document.getElementById('taskInput');
 const projectSelect = document.getElementById('projectSelect');
@@ -9,6 +12,58 @@ const commitBtn = document.getElementById('commitBtn');
 const statusMessage = document.getElementById('statusMessage');
 
 let isSubmitting = false;
+
+// ---- M3 Theme Synchronization ----
+function applyThemePayload(themePayload) {
+  if (!themePayload) return;
+  const { themeId, customSeedEnabled, customSeedColor, schemeMode } = themePayload;
+  const m3Options = {
+    customSeed: customSeedEnabled ? customSeedColor : null,
+    seed: customSeedEnabled ? customSeedColor : undefined,
+    schemeMode: schemeMode || 'auto',
+  };
+  if (schemeMode === 'dark') m3Options.isDark = true;
+  if (schemeMode === 'light') m3Options.isDark = false;
+  applyM3ThemeToDocument(themeId || 'midnight', m3Options, document);
+}
+
+function applyThemeFromSettings(settings) {
+  if (!settings) return;
+  let activeTheme = settings.theme || 'midnight';
+  if (settings.autoRotateTheme !== false && Array.isArray(M3_THEMES) && M3_THEMES.length > 0) {
+    const installedAt = settings.installedAt || Date.now();
+    const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
+    const baseOffset = settings.themeBaseOffset || 0;
+    activeTheme = M3_THEMES[(baseOffset + W) % M3_THEMES.length].id;
+  }
+  const m3Options = {
+    customSeed: settings.customSeedEnabled ? settings.customSeedColor : null,
+    seed: settings.customSeedEnabled ? settings.customSeedColor : undefined,
+    schemeMode: settings.schemeMode || 'auto',
+  };
+  if (settings.schemeMode === 'dark') m3Options.isDark = true;
+  if (settings.schemeMode === 'light') m3Options.isDark = false;
+  applyM3ThemeToDocument(activeTheme, m3Options, document);
+}
+
+// Dynamically sync theme when changed from main window settings
+listen('theme-updated', (evt) => {
+  if (evt?.payload) {
+    applyThemePayload(evt.payload);
+  }
+});
+
+// Load settings on initial startup
+(async function initHudTheme() {
+  try {
+    const settings = await invoke('load_settings');
+    if (settings) {
+      applyThemeFromSettings(settings);
+    }
+  } catch {
+    // Non-fatal if invoked outside Tauri
+  }
+})();
 
 function generateRowId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -49,7 +104,7 @@ async function commitLog() {
 
   if (!task) {
     statusMessage.textContent = 'Please enter a task description';
-    statusMessage.style.color = '#f87171';
+    statusMessage.style.color = 'var(--md-sys-color-error, #f86d6d)';
     taskInput.focus();
     return;
   }
@@ -57,13 +112,13 @@ async function commitLog() {
   if (!isValidTicket(ticketNum)) {
     ticketInput.classList.add('ticket-invalid');
     statusMessage.textContent = 'Invalid ticket # (max 12 prefix chars + 12 digits)';
-    statusMessage.style.color = '#f87171';
+    statusMessage.style.color = 'var(--md-sys-color-error, #f86d6d)';
     ticketInput.focus();
     return;
   }
 
   statusMessage.textContent = 'Saving...';
-  statusMessage.style.color = '#38bdf8';
+  statusMessage.style.color = 'var(--md-sys-color-primary, #7c6df8)';
   isSubmitting = true;
 
   try {
@@ -123,10 +178,11 @@ async function commitLog() {
     projectSelect.value = '';
     hoursInput.value = 0;
     statusMessage.textContent = 'Logged!';
-    statusMessage.style.color = '#38bdf8';
+    statusMessage.style.color = 'var(--md-sys-color-primary, #7c6df8)';
     setTimeout(async () => {
       await invoke('hide_hud_cmd');
       statusMessage.textContent = 'Ready';
+      statusMessage.style.color = 'var(--md-sys-color-primary, #7c6df8)';
       isSubmitting = false;
     }, 300);
 
@@ -135,7 +191,7 @@ async function commitLog() {
     console.error('HUD Commit Error:', err);
     const errMsg = typeof err === 'string' ? err : (err.message || JSON.stringify(err));
     statusMessage.textContent = `Failed: ${errMsg}`;
-    statusMessage.style.color = '#f87171';
+    statusMessage.style.color = 'var(--md-sys-color-error, #f86d6d)';
   }
 }
 
@@ -155,13 +211,16 @@ listen('hud-opened', async () => {
   ticketInput.classList.remove('ticket-invalid');
   projectSelect.value = '';
   statusMessage.textContent = 'Ready';
-  statusMessage.style.color = '#38bdf8';
+  statusMessage.style.color = 'var(--md-sys-color-primary, #7c6df8)';
   setTimeout(() => taskInput.focus(), 50);
 
   try {
     const settings = await invoke('load_settings');
-    if (settings && settings.hourIncrement) {
-      hoursInput.step = settings.hourIncrement;
+    if (settings) {
+      if (settings.hourIncrement) {
+        hoursInput.step = settings.hourIncrement;
+      }
+      applyThemeFromSettings(settings);
     }
   } catch (err) {
     console.error('Failed to load settings in HUD:', err);
