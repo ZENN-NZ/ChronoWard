@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeCsvCell, escHtml, parseTicketNum } from '../src/utils.js';
+import { sanitizeCsvCell, escHtml, parseTicketNum, validateHudPayload, evaluateMidnightRollover } from '../src/utils.js';
 
 test('sanitizeCsvCell preserves numeric 0', () => {
   assert.equal(sanitizeCsvCell(0), '"0"');
@@ -19,6 +19,8 @@ test('sanitizeCsvCell neutralizes formula injection triggers', () => {
   assert.equal(sanitizeCsvCell('=1+1'), '"\'=1+1"');
   assert.equal(sanitizeCsvCell('  +cmd'), '"\'  +cmd"');
   assert.equal(sanitizeCsvCell('@admin'), '"\'@admin"');
+  assert.equal(sanitizeCsvCell('\t=cmd'), '"\'\t=cmd"');
+  assert.equal(sanitizeCsvCell('\r=cmd'), '"\'\r=cmd"');
 });
 
 test('sanitizeCsvCell handles double quotes escaping', () => {
@@ -42,10 +44,59 @@ test('parseTicketNum validates Dual 12/12 prefix and integer ID constraints', ()
   assert.deepEqual(parseTicketNum('123456789012'), { prefix: '', id: '123456789012', isValid: true });
   assert.deepEqual(parseTicketNum('SUPPORT'), { prefix: 'SUPPORT', id: '', isValid: true });
 
-  // Invalid cases (> 12 chars prefix or > 12 digits ID)
+// Invalid cases (> 12 chars prefix or > 12 digits ID)
   assert.equal(parseTicketNum('INFRASTRUCTURE-12345').isValid, false); // Prefix "INFRASTRUCTURE-" is 15 chars
   assert.equal(parseTicketNum('NINJA-1234567890123').isValid, false); // ID "1234567890123" is 13 digits
   assert.equal(parseTicketNum('1234567890123').isValid, false); // ID is 13 digits
 });
 
+test('validateHudPayload rejects invalid dates and payloads', () => {
+  assert.equal(validateHudPayload(null).isValid, false);
+  assert.equal(validateHudPayload({}).isValid, false);
+  assert.equal(validateHudPayload({ date: '2025/01/01', row: {} }).isValid, false); // wrong format
+  assert.equal(validateHudPayload({ date: '2025-01-01' }).isValid, false); // missing row
+  assert.equal(validateHudPayload({ date: '2026-01-01', row: { ticketNum: 'INFRASTRUCTURE-12345' } }).isValid, false);
+});
 
+test('validateHudPayload clamps hours and sanitizes row', () => {
+  const result = validateHudPayload({
+    date: '2026-01-01',
+    row: {
+      timerId: 123, // not a string
+      task: null, // should become empty string
+      hours: 25, // should clamp to 24
+      ot: 'yes', // should become true/false (truthy here)
+      ticketNum: undefined
+    }
+  });
+  
+  assert.equal(result.isValid, true);
+  assert.equal(result.safeRow.hours, 24);
+  assert.equal(result.safeRow.task, ''); // fallback to empty string
+  assert.equal(typeof result.safeRow.timerId, 'string');
+});
+
+test('evaluateMidnightRollover does not reset date when viewing past date on same calendar day', () => {
+  const res = evaluateMidnightRollover('2026-10-27', '2026-10-27', '2026-10-25');
+  assert.deepEqual(res, {
+    dayChanged: false,
+    shouldMoveCurrentDate: false,
+    nextKnownToday: '2026-10-27',
+  });
+});
+
+test('evaluateMidnightRollover moves currentDate only if user was viewing old today when midnight crosses', () => {
+  const onOldToday = evaluateMidnightRollover('2026-10-27', '2026-10-28', '2026-10-27');
+  assert.deepEqual(onOldToday, {
+    dayChanged: true,
+    shouldMoveCurrentDate: true,
+    nextKnownToday: '2026-10-28',
+  });
+
+  const onHistoricalDate = evaluateMidnightRollover('2026-10-27', '2026-10-28', '2026-10-20');
+  assert.deepEqual(onHistoricalDate, {
+    dayChanged: true,
+    shouldMoveCurrentDate: false,
+    nextKnownToday: '2026-10-28',
+  });
+});

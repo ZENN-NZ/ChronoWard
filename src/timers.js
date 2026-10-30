@@ -71,6 +71,13 @@ export function toggleTimer(timerId, store, updateCleanSlateView) {
   }
 }
 
+export function calculateRoundedHours(elapsedMs, increment) {
+  const totalHoursRaw = elapsedMs / 1000 / 3600;
+  const rawInc = parseFloat(increment);
+  const inc = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
+  return Math.round((Math.ceil(totalHoursRaw / inc) * inc) * 100) / 100;
+}
+
 export function stopTimer(timerId, silent, store, callbacks = {}) {
   clearTimerInterval(timerId);
 
@@ -83,15 +90,13 @@ export function stopTimer(timerId, silent, store, callbacks = {}) {
     t.startedAt = null;
   }
   if (!silent) {
-    const totalHoursRaw = t.elapsed / 1000 / 3600;
-    const rawInc = parseFloat(store.settings?.hourIncrement);
-    const inc = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
-    const roundedHours = Math.round((Math.ceil(totalHoursRaw / inc) * inc) * 100) / 100;
+    const roundedHours = calculateRoundedHours(t.elapsed, store.settings?.hourIncrement);
     const tr = document.querySelector(`[data-timer-id="${timerId}"]`)?.closest('tr');
     if (tr) {
       const input = tr.querySelector('.hours-input');
       const existing = parseFloat(input.value) || 0;
-      input.value = parseFloat((existing + roundedHours).toFixed(3));
+      const clamped = Math.min(24, Math.max(0, existing + roundedHours));
+      input.value = parseFloat(clamped.toFixed(3));
     }
   }
   delete timers[timerId];

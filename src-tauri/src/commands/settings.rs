@@ -1,17 +1,9 @@
 /// commands/settings.rs — load_settings, save_settings
 ///
-/// Settings are the only data file that is NOT encrypted by default on first
-/// run — they contain no sensitive data (theme, hour increment, times).
-/// They ARE encrypted after the first save cycle once a keychain key exists,
-/// matching the same enc1: sentinel format as sheets and timers.
-///
-/// This means: settings.json is readable in an emergency without decryption,
-/// which is intentional — the user can see their preferences even if the
-/// keychain is locked. Only timesheet data (sheets.json) truly needs
-/// encryption from a privacy standpoint.
-///
-/// If we decide to encrypt settings in future, the sentinel migration path
-/// in crypto.rs already handles it transparently.
+/// Settings are encrypted at rest with the `enc1:` sentinel format once a
+/// keychain key is available, matching `sheets.json` and `timers.json`.
+/// Legacy plaintext `settings.json` files from pre-encryption installs are
+/// automatically upgraded to encrypted storage on first load.
 use tauri::State;
 use tracing::{debug, info, warn};
 
@@ -21,13 +13,16 @@ use crate::{
 };
 
 /// Loads settings from disk, decrypting if necessary.
-/// Falls back to defaults if the file doesn't exist.
+/// Falls back to `.json.bak` or defaults if the file is missing or corrupt.
 /// Populates the in-memory cache on success.
-///
-/// Returns the settings as a JSON-serialisable value for the renderer.
 #[tauri::command]
 pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, String> {
+    load_settings_impl(&state).await
+}
+
+pub async fn load_settings_impl(state: &AppState) -> Result<Settings, String> {
     let path = state.settings_path();
+    let bak_path = path.with_extension("json.bak");
     debug!("load_settings: {:?}", path);
 
     // If already cached, return from cache
@@ -39,29 +34,63 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
         }
     }
 
-    // Not cached — read from disk
-    let settings = if path.exists() {
-        let raw = tokio::fs::read_to_string(&path)
+    async fn try_load_settings_file(
+        file_path: &std::path::Path,
+        state: &AppState,
+    ) -> Result<(Settings, String, bool), String> {
+        let raw = tokio::fs::read_to_string(file_path)
             .await
-            .map_err(|e| format!("Failed to read settings.json: {e}"))?;
+            .map_err(|e| format!("Failed to read {:?}: {e}", file_path))?;
+        let res = state
+            .decrypt(raw.trim())
+            .map_err(|e| format!("Failed to decrypt {:?}: {e}", file_path))?;
+        let needs_reencrypt = res.needs_reencrypt();
+        let plaintext = res.into_plaintext();
+        let parsed = serde_json::from_str::<Settings>(&plaintext)
+            .map_err(|e| format!("Failed to parse {:?}: {e}", file_path))?;
+        Ok((parsed, plaintext, needs_reencrypt))
+    }
 
-        let plaintext = match state.decrypt(raw.trim()) {
-            Ok(result) => {
-                if result.needs_reencrypt() {
-                    *state.has_legacy_plaintext.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    let settings = if path.exists() {
+        match try_load_settings_file(&path, state).await {
+            Ok((parsed, plaintext, needs_reencrypt)) => {
+                if needs_reencrypt && state.keychain_available() && !state.is_read_only() {
+                    let _guard = state.write_lock.lock().await;
+                    if let Ok(encrypted) = state.encrypt(&plaintext) {
+                        let _ = atomic_write(&path, &encrypted).await;
+                        info!("Migrated legacy plaintext settings.json to encrypted format");
+                    }
                 }
-                result.into_plaintext()
+                parsed
             }
-            Err(e) => {
-                warn!("Failed to decrypt settings.json ({e}) — using defaults");
-                return Ok(Settings::default());
-            }
-        };
+            Err(err) => {
+                warn!("settings.json unreadable ({err}) — quarantining and checking backup");
+                let quarantine = state.quarantine_path("settings.json");
+                let _ = tokio::fs::rename(&path, &quarantine).await;
 
-        serde_json::from_str::<Settings>(&plaintext).unwrap_or_else(|e| {
-            warn!("settings.json parse error ({e}) — using defaults");
-            Settings::default()
-        })
+                if bak_path.exists() {
+                    match try_load_settings_file(&bak_path, state).await {
+                        Ok((bak_settings, _, _)) => {
+                            let _ = tokio::fs::copy(&bak_path, &path).await;
+                            info!("Recovered settings.json from settings.json.bak");
+                            bak_settings
+                        }
+                        Err(_) => Settings::default(),
+                    }
+                } else {
+                    Settings::default()
+                }
+            }
+        }
+    } else if bak_path.exists() {
+        match try_load_settings_file(&bak_path, state).await {
+            Ok((bak_settings, _, _)) => {
+                let _ = tokio::fs::copy(&bak_path, &path).await;
+                info!("Restored missing settings.json from settings.json.bak");
+                bak_settings
+            }
+            Err(_) => Settings::default(),
+        }
     } else {
         info!("settings.json not found — using defaults");
         Settings::default()
@@ -72,27 +101,29 @@ pub async fn load_settings(state: State<'_, AppState>) -> Result<Settings, Strin
     Ok(settings)
 }
 
-/// Saves settings to disk. Encrypts if the keychain is available.
-/// Blocked in emergency mode (though settings loss is less critical,
-/// consistency matters — if writes are blocked, ALL writes are blocked).
+/// Saves settings to disk, encrypted.
+/// Blocked in emergency or write-protected mode.
 #[tauri::command]
 pub async fn save_settings(
+    window: tauri::WebviewWindow,
     settings: Settings,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Unauthorized window for save_settings".to_string());
+    }
     guard_write!(state);
     let _guard = state.write_lock.lock().await;
 
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialise settings: {e}"))?;
 
-    // Encrypt if keychain available, store plaintext if not.
-    // (Emergency mode is already guarded above, so if we reach here without
-    // keychain, it means keychain became unavailable mid-session — rare but
-    // possible. We store plaintext with a warning rather than losing the save.)
+    // Always encrypt with the cached keychain key; refuse to write unencrypted settings.
     let to_write = if state.keychain_available() {
-        state.encrypt(&json).map_err(|e| format!("Failed to encrypt settings: {e}"))?
+        state
+            .encrypt(&json)
+            .map_err(|e| format!("Failed to encrypt settings: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_settings — refusing to write unencrypted settings"
@@ -120,16 +151,34 @@ pub async fn save_settings(
     Ok(())
 }
 
-/// Writes data atomically: write to .tmp file, then rename into place.
-/// This guarantees the target file is never in a half-written state.
-/// Exported for reuse by sheets.rs and timers.rs.
+/// Writes data atomically: write and fsync `.tmp` file, copy existing target
+/// to `.json.bak`, then atomically rename `.tmp` over target.
+/// Using `copy` rather than `rename` for `.bak` guarantees `path` is never
+/// missing on disk between two rename operations.
 pub async fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
     let tmp_path = path.with_extension(format!("json.tmp.{}", timestamp));
 
-    if let Err(e) = tokio::fs::write(&tmp_path, content).await {
-        let _ = tokio::fs::remove_file(&tmp_path).await;
-        return Err(format!("Failed to write temp file {:?}: {e}", tmp_path));
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| format!("Failed to create temp file {:?}: {e}", tmp_path))?;
+        if let Err(e) = file.write_all(content.as_bytes()).await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("Failed to write temp file {:?}: {e}", tmp_path));
+        }
+        if let Err(e) = file.sync_all().await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("Failed to sync temp file {:?}: {e}", tmp_path));
+        }
+    }
+
+    let bak_path = path.with_extension("json.bak");
+    if path.exists() {
+        if let Err(e) = tokio::fs::copy(path, &bak_path).await {
+            warn!("Failed to update backup file {:?}: {e}", bak_path);
+        }
     }
 
     if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
@@ -137,5 +186,43 @@ pub async fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), S
         return Err(format!("Failed to rename temp file to {:?}: {e}", path));
     }
 
+    #[cfg(target_family = "unix")]
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = tokio::fs::File::open(parent).await {
+            let _ = dir.sync_all().await;
+        }
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[tokio::test]
+    async fn test_atomic_write_creates_bak_and_target() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "chronoward_test_atomic_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let path = temp_dir.join("test.json");
+
+        // First write (no bak should exist yet)
+        atomic_write(&path, "first").await.unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
+        assert!(!path.with_extension("json.bak").exists());
+
+        // Second write (should copy first to bak and atomically replace target)
+        atomic_write(&path, "second").await.unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(
+            fs::read_to_string(path.with_extension("json.bak")).unwrap(),
+            "first"
+        );
+
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
 }

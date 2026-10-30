@@ -147,10 +147,6 @@ pub struct AppState {
     /// Always populated by the time the main window is shown.
     pub settings: Mutex<Option<Settings>>,
 
-    /// Tracks whether any data file was found in plaintext (legacy) format
-    /// on last load, so the next save will re-encrypt it.
-    pub has_legacy_plaintext: Mutex<bool>,
-
     /// Tracks whether the hours warning banner is currently active.
     /// Set by the frontend via `set_warning_active` command, checked by the
     /// scheduler on each tick to decide whether to restore the window.
@@ -161,6 +157,9 @@ pub struct AppState {
 
     /// Cached encryption key retrieved from OS keychain at startup.
     pub crypto_key: Option<SecretVec<u8>>,
+
+    /// Runtime flag to block all writes if a critical load fails (e.g. unrecoverable decrypt failure).
+    pub write_protected: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -177,10 +176,10 @@ impl AppState {
             keychain_status,
             emergency_mode: None,
             settings: Mutex::new(None),
-            has_legacy_plaintext: Mutex::new(false),
             warning_active: Mutex::new(false),
             write_lock: tokio::sync::Mutex::new(()),
             crypto_key,
+            write_protected: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -215,6 +214,9 @@ impl AppState {
     /// Returns true if the app should refuse all write operations.
     pub fn is_read_only(&self) -> bool {
         self.emergency_mode.is_some()
+            || self
+                .write_protected
+                .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Returns true if the keychain is available for encryption operations.
@@ -279,6 +281,12 @@ macro_rules! guard_write {
                     .unwrap_or_else(|_| "WRITE_BLOCKED_EMERGENCY_MODE".to_string()),
             );
         }
+        if $state.write_protected.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                serde_json::to_string(&$crate::state::WriteBlockedError::new("Data corrupted or unreadable"))
+                    .unwrap_or_else(|_| "WRITE_BLOCKED_EMERGENCY_MODE".to_string()),
+            );
+        }
     };
 }
 
@@ -317,9 +325,20 @@ mod tests {
     }
 
     #[test]
-    fn test_is_read_only_when_emergency_mode_set() {
+    fn test_is_read_only_when_emergency_mode_or_write_protected_set() {
         let mut state = make_state(KeychainStatus::Unavailable("test".to_string()));
         assert!(!state.is_read_only()); // not yet set
+
+        state
+            .write_protected
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(state.is_read_only());
+
+        state
+            .write_protected
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(!state.is_read_only());
+
         state.set_emergency_mode("Keychain unavailable".to_string(), true);
         assert!(state.is_read_only());
     }

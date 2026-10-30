@@ -1,14 +1,9 @@
 /// commands/timers.rs — load_timers, save_timers
 ///
-/// Timer state is less sensitive than sheet data (no hours/task details,
-/// just elapsed milliseconds and running state), but we encrypt it anyway
-/// for consistency and to avoid leaking "user was running a timer at 2am"
-/// metadata to anyone with filesystem access.
-///
-/// The load/save pattern is identical to sheets.rs. This intentional
-/// repetition (rather than a generic abstraction) means each data type
-/// can diverge independently — e.g. timers might get a TTL expiry,
-/// or sheets might get per-date encryption keys in future.
+/// Timer state is encrypted at rest with the same `enc1:` format as sheets
+/// and settings. If `timers.json` is corrupt or undecryptable, it is
+/// quarantined to `timers.json.corrupt.<timestamp>` and an empty object is
+/// returned so ephemeral timer corruption never blocks timesheet saves.
 use serde_json::Value;
 use tauri::State;
 use tracing::{info, warn};
@@ -19,12 +14,21 @@ use crate::{commands::settings::atomic_write, guard_write, state::AppState};
 /// Returns an empty object if the file doesn't exist (no running timers
 /// on a fresh install is the expected state).
 #[tauri::command]
-pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
-    // Timers are non-critical — in emergency mode we return empty rather
-    // than blocking startup. A lost timer state is inconvenient, not a
-    // data loss event (the hours haven't been logged yet anyway).
+pub async fn load_timers(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if window.label() != "main" {
+        return Err("Unauthorized window for load_timers".to_string());
+    }
+    load_timers_impl(&state).await
+}
+
+pub async fn load_timers_impl(state: &AppState) -> Result<Value, String> {
+    // Timers are non-critical — in read-only mode we return empty rather
+    // than blocking startup.
     if state.is_read_only() {
-        warn!("Emergency mode active — returning empty timer state");
+        warn!("Read-only mode active — returning empty timer state");
         return Ok(serde_json::json!({}));
     }
 
@@ -38,30 +42,51 @@ pub async fn load_timers(state: State<'_, AppState>) -> Result<Value, String> {
         .await
         .map_err(|e| format!("Failed to read timers.json: {e}"))?;
 
-    let plaintext = match state.decrypt(raw.trim()) {
-        Ok(res) => res.into_plaintext(),
+    let (plaintext, needs_reencrypt) = match state.decrypt(raw.trim()) {
+        Ok(res) => {
+            let needs_reencrypt = res.needs_reencrypt();
+            (res.into_plaintext(), needs_reencrypt)
+        }
         Err(e) => {
-            warn!("Failed to decrypt timers.json ({e}) — returning empty");
+            warn!("Failed to decrypt timers.json ({e}) — quarantining and returning empty");
+            let quarantine = state.quarantine_path("timers.json");
+            let _ = tokio::fs::rename(&path, &quarantine).await;
             return Ok(serde_json::json!({}));
         }
     };
 
     match serde_json::from_str::<Value>(&plaintext) {
         Ok(data) => {
+            if needs_reencrypt && state.keychain_available() && !state.is_read_only() {
+                let _guard = state.write_lock.lock().await;
+                if let Ok(encrypted) = state.encrypt(&plaintext) {
+                    let _ = atomic_write(&path, &encrypted).await;
+                    info!("Migrated legacy plaintext timers.json to encrypted format");
+                }
+            }
             info!("timers.json loaded");
             Ok(data)
         }
         Err(e) => {
-            warn!("timers.json is corrupt ({e}) — returning empty");
+            warn!("timers.json is corrupt ({e}) — quarantining and returning empty");
+            let quarantine = state.quarantine_path("timers.json");
+            let _ = tokio::fs::rename(&path, &quarantine).await;
             Ok(serde_json::json!({}))
         }
     }
 }
 
 /// Saves timer state to disk, encrypted.
-/// Blocked in emergency mode.
+/// Blocked in emergency or write-protected mode.
 #[tauri::command]
-pub async fn save_timers(timers: Value, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn save_timers(
+    window: tauri::WebviewWindow,
+    timers: Value,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Unauthorized window for save_timers".to_string());
+    }
     guard_write!(state);
     let _guard = state.write_lock.lock().await;
 
@@ -69,7 +94,9 @@ pub async fn save_timers(timers: Value, state: State<'_, AppState>) -> Result<()
         .map_err(|e| format!("Failed to serialise timers: {e}"))?;
 
     let to_write = if state.keychain_available() {
-        state.encrypt(&json).map_err(|e| format!("Failed to encrypt timers: {e}"))?
+        state
+            .encrypt(&json)
+            .map_err(|e| format!("Failed to encrypt timers: {e}"))?
     } else {
         return Err(
             "Keychain unavailable during save_timers — refusing to write unencrypted data"

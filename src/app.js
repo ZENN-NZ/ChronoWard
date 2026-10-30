@@ -1,4 +1,4 @@
-import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum } from './utils.js';
+import { generateId, escHtml, sanitizeCsvCell, getTodayString, formatDate, getWeekMonday, dayAbbr, getWeekdayDates, parseTicketNum, validateHudPayload, evaluateMidnightRollover } from './utils.js';
 import * as api from './api.js';
 import { store } from './state.js';
 import * as timersModule from './timers.js';
@@ -15,7 +15,6 @@ let currentDate          = '';
 let projectMode          = false;
 let detailedMode           = false;
 let activeDescTimerId    = null;
-let isEmergencyMode      = false;    // NEW: set true if keychain unavailable
 let isCleanSlateMode     = false;    // Clean Slate Isolation Mode state
 
 let rowCounter      = 0;
@@ -38,6 +37,7 @@ const THEMES = [
 
 // ---- Init ----
 async function init() {
+  try {
   // Wire up event listeners BEFORE loading data
   setupStaticListeners();
   setupEventListeners();
@@ -48,13 +48,17 @@ async function init() {
   const sheetsResult = await invoke('load_sheets');
 
   // Handle emergency mode (Decision 1c-ii)
-  if (sheetsResult.ok === false && sheetsResult.code === 'EMERGENCY_MODE') {
-    enterEmergencyMode(sheetsResult);
+  let pendingEmergencyInfo = null;
+  if (sheetsResult.ok === false) {
+    store.isEmergencyMode = true;
+    pendingEmergencyInfo = sheetsResult;
     // Still load settings (they may be readable even in emergency mode)
     // and render a read-only view of whatever we have
     sheets = {};
+    store.sheets = sheets;
   } else {
     sheets = sheetsResult.data || {};
+    store.sheets = sheets;
 
     // Warn if corrupt data was quarantined
     if (sheetsResult.warning === 'CORRUPT_DATA_QUARANTINED') {
@@ -67,11 +71,16 @@ async function init() {
   timers = store.timers;
 
   currentDate = getTodayString();
+  store.currentDate = currentDate;
   document.getElementById('selectedDate').value = currentDate;
 
   const installedAt = settings.installedAt || Date.now();
   if (!settings.installedAt) {
     settings.installedAt = installedAt;
+    if (!store.isEmergencyMode) {
+      store.settings = settings;
+      invoke('save_settings', { settings }).catch(err => console.error(err));
+    }
   }
 
   let activeTheme = settings.theme || 'midnight';
@@ -86,24 +95,34 @@ async function init() {
   applySettingsToUI();
 
   projectMode = settings.projectMode || false;
+  store.projectMode = projectMode;
   document.getElementById('projectModeToggle').checked = projectMode;
   document.getElementById('settingProjectMode').checked = projectMode;
   applyProjectMode();
 
   detailedMode = settings.detailedMode || false;
+  store.detailedMode = detailedMode;
   document.getElementById('detailedModeToggle').checked = detailedMode;
   document.getElementById('settingDetailedMode').checked = detailedMode;
   applyDetailedMode();
 
   loadSheetForDate(currentDate);
+  if (pendingEmergencyInfo) {
+    enterEmergencyMode(pendingEmergencyInfo);
+  }
   restoreTimers();
   setupHoursWarning();
   renderWeeklyCompletion();
   setupKeyboardShortcuts();
 
   document.getElementById('selectedDate').addEventListener('change', (e) => {
+    if (!e.target.value) {
+      e.target.value = currentDate;
+      return;
+    }
     saveCurrentSheet();
     currentDate = e.target.value;
+    store.currentDate = currentDate;
     loadSheetForDate(currentDate);
     renderWeeklyCompletion();
   });
@@ -123,31 +142,69 @@ async function init() {
       invoke('minimize_to_tray').catch(() => {});
     }
   }, 10000);
+
+  // Midnight rollover detection
+  let lastKnownToday = getTodayString();
+  setInterval(() => {
+    const realToday = getTodayString();
+    const rollover = evaluateMidnightRollover(lastKnownToday, realToday, currentDate);
+    if (rollover.dayChanged) {
+      lastKnownToday = rollover.nextKnownToday;
+
+      // Recalculate weekly theme rotation on day change
+      if (settings.autoRotateTheme !== false) {
+        const W = Math.floor((Date.now() - installedAt) / (1000 * 3600 * 24 * 7));
+        const baseOffset = settings.themeBaseOffset || 0;
+        const activeTheme = THEMES[(baseOffset + W) % THEMES.length].id;
+        applyTheme(activeTheme, false);
+        renderThemeGrid();
+      }
+
+      // If user was viewing the old "today", move them to the new today automatically
+      if (rollover.shouldMoveCurrentDate && !store.isEmergencyMode) {
+        saveCurrentSheet();
+        currentDate = realToday;
+        store.currentDate = currentDate;
+        document.getElementById('selectedDate').value = currentDate;
+        loadSheetForDate(currentDate);
+        renderWeeklyCompletion();
+      }
+    }
+  }, 60000);
+  } catch (err) {
+    console.error('Init failed:', err);
+    document.body.innerHTML = `<div style="padding: 2rem; color: #ff5555; font-family: monospace;"><h2>Init Failed</h2><p>${escHtml(err.message || String(err))}</p></div>`;
+  }
 }
 
 // ── Emergency mode UI ─────────────────────────────────────────────────────────
 
 function enterEmergencyMode(info) {
-  isEmergencyMode = true;
+  store.isEmergencyMode = true;
   const banner = document.getElementById('emergencyModeBanner');
   if (banner) {
     banner.classList.remove('hidden');
     const msgEl = banner.querySelector('.emergency-text');
     if (msgEl) {
-      msgEl.textContent = info.encryptedDataExists
-        ? `Read-only mode: your timesheet data is encrypted but the OS keychain is unavailable. ` +
-          `No data has been lost. Contact your IT administrator to restore keychain access.`
-        : `Read-only mode: the OS keychain is unavailable. ` +
-          `Data cannot be saved until the keychain is restored.`;
+      if (info.code === 'DECRYPT_FAILED') {
+        msgEl.textContent = `Read-only mode: failed to decrypt your data. ` +
+          `No data has been lost. Reason: ${info.reason || 'Unknown error'}`;
+      } else {
+        msgEl.textContent = info.encryptedDataExists
+          ? `Read-only mode: your timesheet data is encrypted but the OS keychain is unavailable. ` +
+            `No data has been lost. Contact your IT administrator to restore keychain access.`
+          : `Read-only mode: the OS keychain is unavailable. ` +
+            `Data cannot be saved until the keychain is restored.`;
+      }
     }
   }
 
   // Disable all save-related UI
   document.querySelectorAll(
-    '.btn-primary, .stepper-btn, .task-input, .hours-input, .ot-toggle, .timer-btn, .timer-stop-btn'
+    '.btn-primary, .stepper-btn, .task-input, .hours-input, .ticket-input, .desc-btn, .ot-toggle, .timer-btn, .timer-stop-btn, .row-menu-btn, .row-checkbox, #selectAllCheck, #selectedDate, #cleanSlateBtn, #deleteSelectedBtn'
   ).forEach(el => {
     el.disabled = true;
-    el.title = 'Read-only: keychain unavailable';
+    el.title = 'Read-only: keychain unavailable or data write-protected';
   });
 }
 
@@ -206,7 +263,7 @@ function setupStaticListeners() {
 
 async function setupEventListeners() {
   store.on('check-hours-warning', () => {
-    if (currentDate === getTodayString()) checkHoursWarning();
+    checkHoursWarning();
   });
 
   store.on('emergency-mode', (payload) => {
@@ -221,18 +278,38 @@ async function setupEventListeners() {
     timers = newTimers || {};
   });
 
-  store.on('hud-entry-added', (payload) => {
-    if (!payload || !payload.date || !payload.row) return;
+  store.on('hud-entry-added', async (payload) => {
+    if (store.isEmergencyMode) {
+      emit('hud-entry-failed', { error: 'Read-only mode' });
+      return;
+    }
+
+    const validation = validateHudPayload(payload);
+    if (!validation.isValid) {
+      emit('hud-entry-failed', { error: validation.error });
+      return;
+    }
+    const safeRow = validation.safeRow;
 
     if (currentDate === payload.date) {
-      addRow(payload.row);
-      saveCurrentSheet();
-      renderWeeklyCompletion();
+      addRow(safeRow);
+      onDataChange();
+      const ok = await saveCurrentSheet();
+      if (ok) {
+        emit('hud-entry-saved', { date: payload.date });
+      } else {
+        emit('hud-entry-failed', { error: lastSaveError || 'Failed to save timesheet' });
+      }
     } else {
       if (!sheets[payload.date]) sheets[payload.date] = [];
-      sheets[payload.date].push(payload.row);
-      if (!isEmergencyMode) {
-        invoke('save_sheets', { sheets }).catch(console.error);
+      sheets[payload.date].push(safeRow);
+      store.sheets = sheets;
+      const ok = await flushSheetsToDisk();
+      if (ok) {
+        renderWeeklyCompletion();
+        emit('hud-entry-saved', { date: payload.date });
+      } else {
+        emit('hud-entry-failed', { error: lastSaveError || 'Failed to save timesheet' });
       }
     }
   });
@@ -258,7 +335,7 @@ function renderWeeklyCompletion() {
   const wrapper   = document.getElementById('weeklyCompletion');
   if (!container || !wrapper) return;
 
-  const minHours  = settings.minHoursWarning || 7.5;
+  const minHours  = settings.minHoursWarning ?? 7.5;
 
   // Get all weekday dates for the week containing currentDate (Mon-Fri)
   const weekdayDates = getWeekdayDates(currentDate);
@@ -307,8 +384,11 @@ function renderWeeklyCompletion() {
 }
 
 // ---- Theme ----
+let currentActiveTheme = 'midnight';
+
 function applyTheme(themeId, shouldSave = true) {
   if (!THEMES.find(t => t.id === themeId)) return;
+  currentActiveTheme = themeId;
   document.body.className = `theme-${themeId}`;
 
   if (shouldSave) {
@@ -320,7 +400,7 @@ function applyTheme(themeId, shouldSave = true) {
 
     settings.theme = themeId;
     settings.themeBaseOffset = baseOffset;
-    if (!isEmergencyMode) {
+    if (!store.isEmergencyMode) {
       store.settings = settings;
       invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
     }
@@ -340,12 +420,14 @@ function selectTheme(themeId) {
 function renderThemeGrid() {
   const grid = document.getElementById('themeGrid');
   grid.innerHTML = '';
+  const activeId = currentActiveTheme || settings.theme || 'midnight';
   THEMES.forEach(theme => {
+    const isActive = activeId === theme.id;
     const swatch = document.createElement('div');
-    swatch.className = `theme-swatch${settings.theme === theme.id ? ' active' : ''}`;
+    swatch.className = `theme-swatch${isActive ? ' active' : ''}`;
     swatch.dataset.theme = theme.id;
     swatch.setAttribute('role', 'radio');
-    swatch.setAttribute('aria-checked', settings.theme === theme.id ? 'true' : 'false');
+    swatch.setAttribute('aria-checked', isActive ? 'true' : 'false');
     swatch.setAttribute('aria-label', `${theme.name} theme`);
     swatch.setAttribute('tabindex', '0');
     swatch.onclick = () => selectTheme(theme.id);
@@ -371,7 +453,7 @@ function renderThemeGrid() {
 // ---- Settings ----
 function applySettingsToUI() {
   document.getElementById('settingIncrement').value       = settings.hourIncrement   || 0.5;
-  document.getElementById('settingMinHours').value        = settings.minHoursWarning || 7.5;
+  document.getElementById('settingMinHours').value        = settings.minHoursWarning ?? 7.5;
   document.getElementById('settingWarningTime').value     = settings.warningTime     || '16:30';
   document.getElementById('settingAutoStart').checked     = settings.autoStart ?? true;
   document.getElementById('settingOverlayPosition').value = settings.overlayPosition || 'top-right';
@@ -384,11 +466,12 @@ function applySettingsToUI() {
 }
 
 async function saveSettings() {
-  if (isEmergencyMode) { showToast('⚠ Read-only mode — settings cannot be saved'); return; }
+  if (store.isEmergencyMode) { showToast('⚠ Read-only mode — settings cannot be saved'); return; }
 
   settings.theme           = settings.theme || 'midnight';
   settings.hourIncrement   = parseFloat(document.getElementById('settingIncrement').value)   || 0.5;
-  settings.minHoursWarning = parseFloat(document.getElementById('settingMinHours').value)    || 7.5;
+  const parsedMinHours     = parseFloat(document.getElementById('settingMinHours').value);
+  settings.minHoursWarning = !isNaN(parsedMinHours) ? Math.min(24, Math.max(0, parsedMinHours)) : 7.5;
   settings.warningTime     = document.getElementById('settingWarningTime').value             || '16:30';
   settings.overlayPosition = document.getElementById('settingOverlayPosition').value         || 'top-right';
   const autoRotateEl = document.getElementById('settingAutoRotateTheme');
@@ -410,8 +493,14 @@ async function saveSettings() {
   applyDetailedMode();
 
   store.settings = settings;
-  await invoke('save_settings', { settings });
-  showToast('Settings saved ✓');
+  try {
+    await invoke('save_settings', { settings });
+    showToast('Settings saved ✓');
+  } catch (err) {
+    console.error('save_settings failed:', err);
+    showToast(`⚠ Failed to save settings: ${err}`, 5000);
+    return;
+  }
   checkHoursWarning();
   renderWeeklyCompletion();
 }
@@ -424,6 +513,7 @@ function syncProjectModeFromSettings() {
 
 // ---- View switching ----
 function switchView(viewId) {
+  if (!['timesheet', 'timesheets-view', 'settings'].includes(viewId)) return;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`view-${viewId}`).classList.add('active');
@@ -439,10 +529,11 @@ function toggleProjectMode() {
   document.getElementById('settingProjectMode').checked = projectMode;
   settings.projectMode = projectMode;
   applyProjectMode();
-  if (!isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+  if (!store.isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
 }
 
 function applyProjectMode() {
+  store.projectMode = projectMode;
   const timerCol = document.getElementById('timerColHeader');
   document.querySelectorAll('.timer-col-cell').forEach(c =>
     c.classList.toggle('hidden', !projectMode)
@@ -455,10 +546,11 @@ function toggleDetailedMode() {
   document.getElementById('settingDetailedMode').checked = detailedMode;
   settings.detailedMode = detailedMode;
   applyDetailedMode();
-  if (!isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
+  if (!store.isEmergencyMode) invoke('save_settings', { settings }).catch(err => console.error('save_settings failed:', err));
 }
 
 function applyDetailedMode() {
+  store.detailedMode = detailedMode;
   document.getElementById('detailedColHeader').classList.toggle('hidden', !detailedMode);
   document.getElementById('descColHeader').classList.toggle('hidden', !detailedMode);
   document.querySelectorAll('.ticket-col-cell').forEach(c => c.classList.toggle('hidden', !detailedMode));
@@ -479,9 +571,11 @@ function openDescModal(timerId) {
   activeDescTimerId = timerId;
   const btn = tr.querySelector('.desc-btn');
   const desc = btn?.dataset.desc || '';
-  document.getElementById('descModalTextarea').value = desc;
+  const textarea = document.getElementById('descModalTextarea');
+  textarea.readOnly = false;
+  textarea.value = desc;
   document.getElementById('descModal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('descModalTextarea').focus(), 50);
+  setTimeout(() => textarea.focus(), 50);
 }
 
 function closeDescModal(e) {
@@ -523,32 +617,86 @@ function loadSheetForDate(date) {
   if (rows.length === 0) addRow();
   else rows.forEach(r => addRow(r));
   updateTotals();
+  checkHoursWarning();
   restoreTimers();
 }
 
-function saveCurrentSheet() {
-  if (isEmergencyMode) return;
-  sheets[currentDate] = collectRows();
-  invoke('save_sheets', { sheets }).catch(err => {
-    // If save fails (e.g. keychain went down mid-session), show a warning
-    // but don't lose the in-memory data
+let isSaving = false;
+let savePending = false;
+let pendingSaveWaiters = [];
+let lastSaveError = null;
+
+async function flushSheetsToDisk() {
+  if (store.isEmergencyMode) {
+    lastSaveError = 'Read-only mode';
+    return false;
+  }
+
+  if (isSaving) {
+    savePending = true;
+    return new Promise(resolve => {
+      pendingSaveWaiters.push(resolve);
+    });
+  }
+
+  isSaving = true;
+  let ok = false;
+  try {
+    do {
+      savePending = false;
+      await invoke('save_sheets', { sheets });
+      ok = true;
+      lastSaveError = null;
+    } while (savePending && !store.isEmergencyMode);
+  } catch (err) {
+    ok = false;
+    lastSaveError = typeof err === 'string' ? err : (err?.message || String(err));
     console.error('save_sheets failed:', err);
-    if (err?.includes?.('WRITE_BLOCKED_EMERGENCY_MODE')) {
+    showToast(`⚠ Save failed: ${lastSaveError}`, 5000);
+    if (lastSaveError.includes('WRITE_BLOCKED_EMERGENCY_MODE')) {
       enterEmergencyMode({ encryptedDataExists: true });
     }
-  });
+  } finally {
+    isSaving = false;
+    const waiters = pendingSaveWaiters.splice(0);
+    waiters.forEach(resolve => resolve(ok));
+  }
+  return ok;
+}
+
+async function saveCurrentSheet() {
+  if (store.isEmergencyMode) return false;
+  sheets[currentDate] = collectRows();
+  store.sheets = sheets;
+  return await flushSheetsToDisk();
 }
 
 function collectRows() {
   const rows = [];
   document.querySelectorAll('#timesheetBody tr').forEach(tr => {
+    let hours = parseFloat(tr.querySelector('.hours-input')?.value) || 0;
+    hours = Math.max(0, Math.min(24, hours));
+    
+    const task = tr.querySelector('.task-input')?.value || '';
+    const ticketNum = tr.querySelector('.ticket-input')?.value || '';
+    const description = tr.querySelector('.desc-btn')?.dataset.desc || '';
+    const timerId = tr.dataset.timerId;
+    const hasActiveOrPausedTimer = Boolean(
+      timerId && timers[timerId] && (timers[timerId].running || timers[timerId].elapsed > 0)
+    );
+    
+    // Skip entirely blank rows unless a timer is active/paused on this row
+    if (hours === 0 && !task.trim() && !ticketNum.trim() && !description.trim() && !hasActiveOrPausedTimer) {
+      return;
+    }
+    
     rows.push({
-      timerId:     tr.dataset.timerId,
-      task:        tr.querySelector('.task-input')?.value || '',
-      hours:       parseFloat(tr.querySelector('.hours-input')?.value) || 0,
+      timerId,
+      task,
+      hours,
       ot:          tr.querySelector('.ot-toggle')?.classList.contains('active') || false,
-      ticketNum:   tr.querySelector('.ticket-input')?.value || '',
-      description: tr.querySelector('.desc-btn')?.dataset.desc || '',
+      ticketNum,
+      description,
     });
   });
   return rows;
@@ -618,7 +766,13 @@ function addRow(data = null, insertAfterEl = null) {
   hoursInput.step = settings.hourIncrement || 0.5;
   hoursInput.setAttribute('aria-label', 'Hours worked');
   hoursInput.addEventListener('input', () => onDataChangeDebounced());
-  hoursInput.addEventListener('blur', () => saveCurrentSheet());
+  hoursInput.addEventListener('blur', () => {
+    let clamped = parseFloat(hoursInput.value) || 0;
+    clamped = Math.min(24, Math.max(0, clamped));
+    hoursInput.value = clamped;
+    onDataChange();
+    saveCurrentSheet();
+  });
   const btnPlus = document.createElement('button');
   btnPlus.className = 'stepper-btn';
   btnPlus.setAttribute('aria-label', 'Increase hours');
@@ -745,6 +899,12 @@ function addRow(data = null, insertAfterEl = null) {
   else tbody.appendChild(tr);
 
   if (timers[timerId]) updateTimerDisplay(timerId);
+  if (store.isEmergencyMode) {
+    tr.querySelectorAll('input, button').forEach(el => {
+      el.disabled = true;
+      el.title = 'Read-only: keychain unavailable or data write-protected';
+    });
+  }
   return tr;
 }
 
@@ -763,7 +923,7 @@ function stepHours(timerId, dir) {
   const rawInc = parseFloat(settings.hourIncrement);
   const inc    = (!isNaN(rawInc) && rawInc > 0) ? rawInc : 0.5;
   let val      = parseFloat(input.value) || 0;
-  val = Math.max(0, Math.round((val + dir * inc) / inc) * inc);
+  val = Math.min(24, Math.max(0, Math.round((val + dir * inc) / inc) * inc));
   val = Math.round(val * 100) / 100;
   input.value = parseFloat(val.toFixed(2));
   onDataChange();
@@ -796,7 +956,6 @@ function updateTotals() {
   document.getElementById('footerTotal').textContent       = total.toFixed(1) + 'h';
   const totalDisplay = document.getElementById('totalHoursDisplay');
   if (totalDisplay) totalDisplay.textContent = total.toFixed(1) + 'h';
-  emit('hours-updated', { total }).catch(() => {});
   return total;
 }
 
@@ -902,6 +1061,7 @@ let cleanSlateActiveTimerId = 'new';
 
 function toggleCleanSlateMode() {
   isCleanSlateMode = !isCleanSlateMode;
+  store.isCleanSlateMode = isCleanSlateMode;
   const tableContainer = document.querySelector('.table-container');
   const tableFooter = document.querySelector('.table-footer');
   const weeklyCompletion = document.querySelector('.weekly-completion');
@@ -1017,8 +1177,10 @@ function cleanSlateToggleTimer() {
     const tr = addRow({ task: formattedTask, hours: 0, ot: false });
     const timerId = tr.dataset.timerId;
 
-    // Start timer on this new row
+    // Start timer on this new row and persist the row immediately
     toggleTimer(timerId);
+    onDataChange();
+    saveCurrentSheet();
 
     // Refresh options and select the new timerId
     cleanSlateActiveTimerId = timerId;
@@ -1038,19 +1200,22 @@ function cleanSlateLogFocus() {
   const projectSelect = document.getElementById('cleanSlateProjectSelect');
   const val = select?.value || 'new';
 
+  const inc = parseFloat(settings.hourIncrement) || 0.5;
+
   if (val === 'new') {
     const taskDesc = customInput?.value.trim() || 'Focus Session';
     const proj = projectSelect?.value || 'General';
     const formattedTask = `[${proj}] ${taskDesc}`;
 
-    addRow({ task: formattedTask, hours: 0.5, ot: false });
+    addRow({ task: formattedTask, hours: inc, ot: false });
+    onDataChange();
     saveCurrentSheet();
-    showToast('✓ Logged 0.5h to new focus task');
+    showToast(`✓ Logged ${inc}h to new focus task`);
     refreshCleanSlateTaskOptions();
   } else {
     stepHours(val, 1);
     saveCurrentSheet();
-    showToast('✓ Logged 0.5h to task');
+    showToast(`✓ Logged ${inc}h to task`);
   }
 }
 
@@ -1114,8 +1279,9 @@ async function exportCSV() {
     lines.push(cols.join(','));
   });
 
+  const contentWithBOM = '\uFEFF' + lines.join('\r\n');
   const result = await invoke('export_csv', {
-    payload: { content: lines.join('\n'), date: dateStr }
+    payload: { content: contentWithBOM, date: dateStr }
   });
   if (result.success) showToast(`Exported ✓`);
 }
@@ -1188,6 +1354,22 @@ function renderDateRangeTimesheets() {
 
   const fromDate = new Date(fromStr + 'T00:00:00');
   const toDate = new Date(toStr + 'T23:59:59');
+
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    container.innerHTML = `<div class="empty-state"><p>Invalid date range selected.</p></div>`;
+    return;
+  }
+
+  if (fromDate > toDate) {
+    container.innerHTML = `<div class="empty-state"><p>Start date must be on or before end date.</p></div>`;
+    return;
+  }
+
+  // Prevent browser hangs on massive ranges
+  if ((toDate - fromDate) / (1000 * 60 * 60 * 24) > 366) {
+    container.innerHTML = `<div class="empty-state"><p>Date range too large. Maximum is 366 days.</p></div>`;
+    return;
+  }
 
   let totalHours = 0;
   let totalOT = 0;
@@ -1286,7 +1468,7 @@ function renderDateRangeTimesheets() {
       html += `
         <tr>
           <td style="font-weight:500;">${escHtml(r.task || '')}</td>
-          <td style="font-family:var(--font-mono);">${r.hours || 0}</td>
+          <td style="font-family:var(--font-mono);">${Number(r.hours || 0)}</td>
           <td>${r.ot ? '<span style="color:var(--ot);font-weight:600;">Yes</span>' : 'No'}</td>
           <td style="font-family:var(--font-mono);">${escHtml(r.ticketNum || '')}</td>
           <td style="text-align:center;">
@@ -1311,6 +1493,7 @@ function renderDateRangeTimesheets() {
     btn.addEventListener('click', () => {
       const date = btn.dataset.date;
       currentDate = date;
+      store.currentDate = currentDate;
       document.getElementById('selectedDate').value = date;
       loadSheetForDate(date);
       switchView('timesheet');
@@ -1321,9 +1504,11 @@ function renderDateRangeTimesheets() {
   container.querySelectorAll('.open-range-desc-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       activeDescTimerId = null;
-      document.getElementById('descModalTextarea').value = btn.dataset.desc || '';
+      const textarea = document.getElementById('descModalTextarea');
+      textarea.readOnly = true;
+      textarea.value = btn.dataset.desc || '';
       document.getElementById('descModal').classList.remove('hidden');
-      setTimeout(() => document.getElementById('descModalTextarea').focus(), 50);
+      setTimeout(() => textarea.focus(), 50);
     });
   });
 
@@ -1340,97 +1525,30 @@ function renderDateRangeTimesheets() {
   });
 }
 
-function showImportedDesc(btn, text) {
-  document.getElementById('descModalTextarea').value = text;
-  document.getElementById('descModal').classList.remove('hidden');
-  // read-only context — save on close won't write back since activeDescTimerId is null
-  activeDescTimerId = null;
-}
-
-function parseCSV(text) {
-  const rows = [];
-  let currentRow = [];
-  let currentField = '';
-  let inQuote = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    const next = text[i + 1];
-
-    if (c === '"') {
-      if (inQuote && next === '"') {
-        currentField += '"';
-        i++; // Skip next quote
-      } else {
-        inQuote = !inQuote;
-      }
-    } else if (c === ',' && !inQuote) {
-      currentRow.push(currentField);
-      currentField = '';
-    } else if ((c === '\n' || c === '\r') && !inQuote) {
-      if (c === '\r' && next === '\n') i++;
-      currentRow.push(currentField);
-      if (currentRow.length > 0) rows.push(currentRow);
-      currentRow = [];
-      currentField = '';
-    } else {
-      currentField += c;
-    }
-  }
-  // Flush remaining data
-  if (currentField !== '' || currentRow.length > 0) {
-    currentRow.push(currentField);
-    rows.push(currentRow);
-  }
-
-  if (rows.length < 2) return [];
-
-  const headers = rows[0].map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  return rows.slice(1).map(cols => {
-    const row = {};
-    headers.forEach((h, i) => {
-      const val = (cols[i] || '').trim().replace(/^"|"$/g, '');
-      if      (h === 'task')                                               row.task        = val;
-      else if (h === 'hours')                                              row.hours       = parseFloat(val) || 0;
-      else if (h === 'overtime' || h === 'ot')                             row.ot          = (val.toLowerCase() === 'yes' || val.toLowerCase() === 'true' || val === '1');
-      else if (h === 'ticket #' || h === 'ticket number' || h === 'ticket') row.ticketNum  = val;
-      else if (h === 'description' || h === 'desc')                        row.description = val;
-    });
-    return row;
-  });
-}
-
-function copyTaskText(btn, text) {
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-  });
-}
-
 // ---- Hours Warning ----
+let isWarningBannerActive = false;
+
 function setupHoursWarning() {
-  // check-hours-warning is now wired via listen() in setupEventListeners()
-  setInterval(() => {
-    if (currentDate === getTodayString()) checkHoursWarning();
-  }, 60000);
+  // check-hours-warning is wired via listen() in setupEventListeners() from the Rust scheduler.
+  // Duplicate interval removed.
 }
 
 function checkHoursWarning() {
-  if (currentDate !== getTodayString()) return;
+  if (currentDate !== getTodayString()) {
+    hideBanner(); // M3: hide banner when leaving today
+    return;
+  }
   const now = new Date();
   const [wh, wm]    = (settings.warningTime || '16:30').split(':').map(Number);
   const warningMins = wh * 60 + wm;
   const currentMins = now.getHours() * 60 + now.getMinutes();
   if (currentMins < warningMins) { hideBanner(); return; }
   const total    = updateTotals();
-  const minHours = settings.minHoursWarning || 7.5;
+  const minHours = settings.minHoursWarning ?? 7.5;
   if (total < minHours) {
     showBanner(total, minHours);
-    invoke('set_always_on_top', { value: true }).catch(() => {});
   } else {
     hideBanner();
-    invoke('set_always_on_top', { value: false }).catch(() => {});
   }
 }
 
@@ -1441,13 +1559,20 @@ function showBanner(current, required) {
     reqText.innerHTML = `Daily tracking status: <strong id="bannerCurrentHours">${current.toFixed(1)}</strong>h logged towards <strong id="bannerTargetHours">${required}</strong>h target`;
   }
   banner.classList.remove('hidden');
-  invoke('set_warning_active', { active: true }).catch(() => {});
-  emit('warning-active').catch(() => {});
+  
+  if (!isWarningBannerActive) {
+    isWarningBannerActive = true;
+    invoke('set_warning_active', { active: true }).catch(() => {});
+    emit('warning-active').catch(() => {});
+  }
 }
 
 function hideBanner() {
   document.getElementById('hoursWarningBanner').classList.add('hidden');
-  invoke('set_warning_active', { active: false }).catch(() => {});
+  if (isWarningBannerActive) {
+    isWarningBannerActive = false;
+    invoke('set_warning_active', { active: false }).catch(() => {});
+  }
   invoke('set_always_on_top', { value: false }).catch(() => {});
 }
 
@@ -1472,6 +1597,7 @@ function shiftSelectedDate(days) {
   const d = new Date(currentDate + 'T00:00:00');
   d.setDate(d.getDate() + days);
   currentDate = formatDate(d);
+  store.currentDate = currentDate;
   document.getElementById('selectedDate').value = currentDate;
   loadSheetForDate(currentDate);
   renderWeeklyCompletion();
@@ -1483,6 +1609,7 @@ function jumpToToday() {
   }
   saveCurrentSheet();
   currentDate = getTodayString();
+  store.currentDate = currentDate;
   document.getElementById('selectedDate').value = currentDate;
   loadSheetForDate(currentDate);
   renderWeeklyCompletion();
@@ -1539,7 +1666,7 @@ function setupKeyboardShortcuts() {
     // Ctrl + 1 / 2 / 3 -> Switch Views
     if (isCtrl && !e.shiftKey && ['1', '2', '3'].includes(e.key)) {
       e.preventDefault();
-      const views = ['timesheet', 'import', 'settings'];
+      const views = ['timesheet', 'timesheets-view', 'settings'];
       switchView(views[parseInt(e.key) - 1]);
       return;
     }
@@ -1563,8 +1690,13 @@ function setupKeyboardShortcuts() {
     // Ctrl + S -> Force Save Sheet
     if (isCtrl && !e.shiftKey && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      saveCurrentSheet();
-      showToast('Timesheet saved to disk');
+      if (store.isEmergencyMode) {
+        showToast('⚠ Read-only mode — timesheet cannot be saved');
+        return;
+      }
+      saveCurrentSheet().then(ok => {
+        if (ok) showToast('Timesheet saved to disk');
+      });
       return;
     }
 

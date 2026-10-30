@@ -4,6 +4,9 @@
 // ============================
 
 export function generateId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
@@ -11,7 +14,7 @@ export function generateId() {
 }
 
 export function escHtml(str) {
-  return String(str || '')
+  return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -21,8 +24,9 @@ export function escHtml(str) {
 
 export function sanitizeCsvCell(val) {
   let str = String(val ?? '').replace(/"/g, '""');
-  const trimmed = str.trimStart();
-  if (/^[=+\-@\t\r]/.test(trimmed)) {
+  // Check against the raw string for \t and \r triggers,
+  // because trimStart() would remove them before they can be matched
+  if (/^[=+\-@\t\r]/.test(str) || /^[=+\-@\t\r]/.test(str.trimStart())) {
     str = "'" + str;
   }
   return `"${str}"`;
@@ -70,4 +74,49 @@ export function getWeekdayDates(dateStr) {
     dates.push(formatDate(d));
   }
   return dates;
+}
+
+export function validateHudPayload(payload) {
+  if (!payload || !payload.date || !payload.row || typeof payload.date !== 'string') {
+    return { isValid: false, error: 'Invalid payload' };
+  }
+  
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.date)) {
+    return { isValid: false, error: 'Invalid date format' };
+  }
+
+  let hours = parseFloat(payload.row.hours) || 0;
+  hours = Math.max(0, Math.min(24, hours));
+
+  const rawTicket = String(payload.row.ticketNum || '').trim();
+  const ticketCheck = parseTicketNum(rawTicket);
+  if (!ticketCheck.isValid) {
+    return { isValid: false, error: 'Invalid ticket number format' };
+  }
+
+  const safeRow = {
+    timerId: typeof payload.row.timerId === 'string' ? payload.row.timerId : generateId(),
+    task: String(payload.row.task || ''),
+    hours: hours,
+    ot: Boolean(payload.row.ot),
+    ticketNum: rawTicket,
+    description: String(payload.row.description || '')
+  };
+
+  return { isValid: true, safeRow };
+}
+
+export function evaluateMidnightRollover(lastKnownToday, realToday, currentDate) {
+  if (!lastKnownToday || !realToday || lastKnownToday === realToday) {
+    return {
+      dayChanged: false,
+      shouldMoveCurrentDate: false,
+      nextKnownToday: realToday || lastKnownToday,
+    };
+  }
+  return {
+    dayChanged: true,
+    shouldMoveCurrentDate: currentDate === lastKnownToday,
+    nextKnownToday: realToday,
+  };
 }

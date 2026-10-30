@@ -25,9 +25,9 @@ const KEYCHAIN_ACCOUNT: &str = "chronoward-data-key";
 const PREFIX_KEYCHAIN: &str = "enc1:";
 
 // ── Key size ──────────────────────────────────────────────────────────────────
-// 32 bytes = 256-bit key for AES-256-GCM (used internally by the OS keychain
-// encryption layer; we store a random key in the keychain and use it to
-// derive the actual encryption via the OS APIs).
+// 32 bytes = 256-bit key for AES-256-GCM. We store this randomly generated key
+// in the OS keychain and use it directly for encryption/decryption of the
+// local timesheet data files.
 const KEY_SIZE: usize = 32;
 
 /// Represents the availability state of the keychain at runtime.
@@ -47,8 +47,8 @@ pub enum KeychainStatus {
 /// On success, also ensures a key exists (creates one if this is a fresh
 /// install). This means first-run key generation happens here, not lazily
 /// during the first save, so we fail fast rather than at save time.
-pub fn probe_keychain() -> (KeychainStatus, Option<SecretVec<u8>>) {
-    match ensure_key_exists() {
+pub fn probe_keychain(encrypted_data_exists: bool) -> (KeychainStatus, Option<SecretVec<u8>>) {
+    match ensure_key_exists(encrypted_data_exists) {
         Ok((key, is_new_key)) => {
             info!("Keychain probe: available (is_new_key={is_new_key})");
             (KeychainStatus::Available { is_new_key }, Some(SecretVec::new(key)))
@@ -63,14 +63,15 @@ pub fn probe_keychain() -> (KeychainStatus, Option<SecretVec<u8>>) {
 /// Retrieves the encryption key from the OS keychain.
 /// Creates a new random key if one doesn't exist yet (first run).
 /// Returns tuple of (key bytes, is_new_key boolean).
-fn ensure_key_exists() -> Result<(Vec<u8>, bool)> {
+fn ensure_key_exists(encrypted_data_exists: bool) -> Result<(Vec<u8>, bool)> {
     let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .context("Failed to create keychain entry handle")?;
 
     match entry.get_password() {
         Ok(stored) => {
+            let stored_secret = secrecy::SecretString::from(stored);
             // Key exists — decode from hex and validate length
-            let key = hex::decode(&stored)
+            let key = hex::decode(stored_secret.expose_secret())
                 .context("Keychain key is not valid hex — keychain may be corrupt")?;
             if key.len() != KEY_SIZE {
                 return Err(anyhow!(
@@ -83,12 +84,15 @@ fn ensure_key_exists() -> Result<(Vec<u8>, bool)> {
             Ok((key, false))
         }
         Err(keyring::Error::NoEntry) => {
+            if encrypted_data_exists {
+                return Err(anyhow!("key missing for existing encrypted data"));
+            }
             // First run — generate and store a new key
             info!("No keychain entry found — generating new encryption key");
             let key = generate_random_key()?;
-            let hex_key = hex::encode(&key);
+            let hex_key = secrecy::SecretString::from(hex::encode(&key));
             entry
-                .set_password(&hex_key)
+                .set_password(hex_key.expose_secret())
                 .context("Failed to store new encryption key in keychain")?;
             info!("New encryption key stored in keychain");
             Ok((key, true))
@@ -155,7 +159,7 @@ pub fn decrypt(stored: &str, key: Option<&SecretVec<u8>>, is_new_key: bool) -> R
         let key = key.ok_or_else(|| anyhow!("OS keychain key unavailable for decryption"))?;
         let decrypted = decrypt_enc1(payload, key)?;
         Ok(DecryptResult::Decrypted(decrypted))
-    } else if (trimmed.starts_with('{') || trimmed.starts_with('[')) && !trimmed.starts_with("enc") {
+    } else if trimmed.starts_with('{') || trimmed.starts_with('[') {
         if key.is_some() && !is_new_key {
             return Err(anyhow!(
                 "Insecure downgrade attack blocked: Plaintext payload provided while an established OS keychain key is active."
@@ -242,30 +246,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_enc1_roundtrip_via_internal_functions() {
-        use aes_gcm::{
-            aead::{Aead, KeyInit},
-            Aes256Gcm, Nonce,
-        };
-        use rand::RngCore;
-
-        let key_bytes: Vec<u8> = (0..32).collect(); // deterministic test key
-        let cipher = Aes256Gcm::new_from_slice(&key_bytes).unwrap();
-
-        let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
+    fn test_enc1_roundtrip_via_public_api() {
+        let key = SecretVec::new((0..32).collect());
         let plaintext = r#"{"2025-01-15": [{"task": "Design review", "hours": 3.5}]}"#;
-        let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes()).unwrap();
 
-        let mut combined = nonce_bytes.to_vec();
-        combined.extend_from_slice(&ciphertext);
+        let encrypted = encrypt(plaintext, &key).unwrap();
+        assert!(encrypted.starts_with(PREFIX_KEYCHAIN));
 
-        let decrypted_bytes = cipher.decrypt(nonce, ciphertext.as_ref()).unwrap();
-        let decrypted = String::from_utf8(decrypted_bytes).unwrap();
-
-        assert_eq!(plaintext, decrypted);
+        let res = decrypt(&encrypted, Some(&key), false).unwrap();
+        assert!(!res.needs_reencrypt());
+        assert_eq!(res.into_plaintext(), plaintext);
     }
 
     #[test]
@@ -324,17 +314,14 @@ mod tests {
 
     #[test]
     fn test_two_encryptions_produce_different_ciphertext() {
-        let (status, key) = probe_keychain();
-        if matches!(status, KeychainStatus::Available { .. }) {
-            let key = key.unwrap();
-            let plaintext = "same plaintext";
-            let ct1 = encrypt(plaintext, &key).unwrap();
-            let ct2 = encrypt(plaintext, &key).unwrap();
-            assert_ne!(ct1, ct2);
-            assert_eq!(
-                decrypt(&ct1, Some(&key), false).unwrap().into_plaintext(),
-                decrypt(&ct2, Some(&key), false).unwrap().into_plaintext()
-            );
-        }
+        let key = SecretVec::new(vec![42u8; 32]);
+        let plaintext = "same plaintext";
+        let ct1 = encrypt(plaintext, &key).unwrap();
+        let ct2 = encrypt(plaintext, &key).unwrap();
+        assert_ne!(ct1, ct2);
+        assert_eq!(
+            decrypt(&ct1, Some(&key), false).unwrap().into_plaintext(),
+            decrypt(&ct2, Some(&key), false).unwrap().into_plaintext()
+        );
     }
 }
